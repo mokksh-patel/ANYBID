@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AnyBid — Bid on anything. Win everything.</title>
+  <link rel="stylesheet" href="/css/main.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-top">
+      <a href="/" class="logo">Any<span>Bid</span><small>Bid on anything. Win everything.</small></a>
+      <form class="search-bar" id="search-form">
+        <input type="search" id="search-input" placeholder="Search phones, property, handmade…" />
+        <button type="submit">Search</button>
+      </form>
+      <div class="header-actions">
+        <a href="/sell.html" class="btn btn-primary">+ Sell</a>
+        <a href="/login.html" class="btn btn-outline" id="nav-login">Login</a>
+        <a href="/dashboard.html" class="btn btn-ghost" id="nav-user" style="display:none">Account</a>
+        <a href="/admin.html" class="btn btn-outline" id="nav-admin" style="display:none">Admin</a>
+      </div>
+    </div>
+  </header>
+
+  <nav class="nav-cats">
+    <ul id="category-nav">
+      <li><a href="/" class="active" data-cat="">All</a></li>
+    </ul>
+  </nav>
+
+  <section class="pillars">
+    <div class="pillar"><strong>ANYTHING</strong><span>Water bottle to wedding jewelry — no limits</span></div>
+    <div class="pillar"><strong>FAIR</strong><span>Floor price protects sellers · Transparent bids</span></div>
+    <div class="pillar"><strong>LIVE</strong><span>60s BidRush — every late bid resets the timer</span></div>
+  </section>
+
+  <main class="container">
+    <div class="section-title">
+      <h2>🔥 Top Deals — Live Auctions</h2>
+      <select id="sort-select">
+        <option value="ending">Ending soon</option>
+        <option value="new">Newest</option>
+        <option value="price">Highest bid</option>
+      </select>
+    </div>
+    <div id="auction-grid" class="auction-grid"></div>
+    <div id="empty" class="empty-state" style="display:none">No live auctions. <a href="/sell.html">List the first item!</a></div>
+  </main>
+
+  <footer class="footer">
+    <p>AnyBid · eBay meets Flash Sale meets Indian Bazaar</p>
+    <p class="commission-note">Platform commission: <span id="commission-pct">5</span>% on successful sales · Payments via Razorpay</p>
+  </footer>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/home.js"></script>
+</body>
+</html>

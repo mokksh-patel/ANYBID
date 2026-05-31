@@ -1,0 +1,44 @@
+services:
+  - type: web
+    name: anybid
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node scripts/init-db.js && node scripts/seed-marketplace.js && node server/index.js
+    envVars:
+      - key: NODE_VERSION
+        value: 22
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ADMIN_EMAIL
+        value: mokkshpatel@gmail.com
+      - key: COMMISSION_PERCENT
+        value: 5
+      - key: DEFAULT_CURRENCY
+        value: INR
+      - key: DB_HOST
+        fromDatabase:
+          name: anybid-db
+          property: host
+      - key: DB_PORT
+        fromDatabase:
+          name: anybid-db
+          property: port
+      - key: DB_USER
+        fromDatabase:
+          name: anybid-db
+          property: user
+      - key: DB_PASSWORD
+        fromDatabase:
+          name: anybid-db
+          property: password
+      - key: DB_NAME
+        fromDatabase:
+          name: anybid-db
+          property: database
+
+databases:
+  - name: anybid-db
+    plan: free
+    databaseName: anybid
+    user: anybid

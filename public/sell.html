@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Sell on AnyBid</title>
+  <link rel="stylesheet" href="/css/main.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-top">
+      <a href="/" class="logo">Any<span>Bid</span></a>
+      <a href="/dashboard.html" class="btn btn-outline">My account</a>
+    </div>
+  </header>
+  <main class="container" style="max-width:640px">
+    <h1 style="margin:1rem 0">List an auction</h1>
+    <p class="commission-note">Set a <strong>floor price</strong> — if bidding doesn't reach it, no sale happens. You can cancel anytime before the first bid.</p>
+    <div id="alert"></div>
+    <form id="sell-form" class="auth-card" style="max-width:100%">
+      <div class="form-group">
+        <label>Listing type</label>
+        <select name="listing_type" id="listing-type">
+          <option value="product">Product</option>
+          <option value="real_estate">Real Estate / Property</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Title</label>
+        <input name="title" required placeholder="iPhone 14, 2BHK flat in Pune…" />
+      </div>
+      <div class="form-group">
+        <label>Description</label>
+        <textarea name="description" rows="4" placeholder="Condition, location, details…"></textarea>
+      </div>
+      <div class="form-group">
+        <label>Category</label>
+        <select name="category" id="category-select" required></select>
+      </div>
+      <div id="estate-fields" style="display:none">
+        <div class="form-row">
+          <div class="form-group">
+            <label>Property location</label>
+            <input name="property_location" placeholder="City, area" />
+          </div>
+          <div class="form-group">
+            <label>Area (sq ft)</label>
+            <input name="property_area_sqft" type="number" />
+          </div>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Photo</label>
+        <input type="file" name="image" accept="image/*" />
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Currency</label>
+          <select name="currency" id="currency-select"></select>
+        </div>
+        <div class="form-group">
+          <label>Duration</label>
+          <select name="duration" required>
+            <option value="1h">1 hour</option>
+            <option value="6h">6 hours</option>
+            <option value="1d" selected>1 day</option>
+            <option value="3d">3 days</option>
+            <option value="1w">1 week</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Starting bid</label>
+          <input name="starting_bid" type="number" step="0.01" required />
+        </div>
+        <div class="form-group">
+          <label>Floor price (minimum to sell)</label>
+          <input name="floor_price" type="number" step="0.01" required />
+        </div>
+      </div>
+      <div class="form-group" id="weight-group">
+        <label>Weight (kg) for shipping estimate</label>
+        <input name="shipping_weight_kg" type="number" step="0.1" value="0.5" />
+      </div>
+      <button type="submit" class="btn btn-primary btn-block">Start auction</button>
+    </form>
+  </main>
+  <script src="/js/api.js"></script>
+  <script src="/js/sell.js"></script>
+</body>
+</html>

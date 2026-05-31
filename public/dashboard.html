@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>My Account — AnyBid</title>
+  <link rel="stylesheet" href="/css/main.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-top">
+      <a href="/" class="logo">Any<span>Bid</span></a>
+      <button class="btn btn-outline" id="logout-btn">Logout</button>
+    </div>
+  </header>
+  <main class="container">
+    <h1 id="welcome">My Account</h1>
+    <div class="tabs">
+      <button class="tab active" data-tab="notifications">Notifications</button>
+      <button class="tab" data-tab="selling">My listings</button>
+      <button class="tab" data-tab="bidding">My bids</button>
+    </div>
+    <div id="panel"></div>
+  </main>
+  <script src="/js/api.js"></script>
+  <script src="/js/dashboard.js"></script>
+</body>
+</html>

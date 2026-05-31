@@ -1,0 +1,42 @@
+services:
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root_secret
+      MYSQL_DATABASE: anybid
+      MYSQL_USER: anybid
+      MYSQL_PASSWORD: anybid_secret
+    ports:
+      - "3306:3306"
+    volumes:
+      - anybid_mysql_data:/var/lib/mysql
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: 3000
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USER: anybid
+      DB_PASSWORD: anybid_secret
+      DB_NAME: anybid
+      ADMIN_EMAIL: mokkshpatel@gmail.com
+      COMMISSION_PERCENT: 5
+      APP_URL: ${APP_URL:-http://localhost:3000}
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+volumes:
+  anybid_mysql_data:

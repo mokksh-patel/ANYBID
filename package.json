@@ -1,0 +1,35 @@
+{
+  "name": "anybid",
+  "version": "1.0.0",
+  "description": "Bid on anything. Win everything. — Indian auction marketplace",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "db:init": "node scripts/init-db.js",
+    "db:seed": "node scripts/seed-demo.js",
+    "db:reset": "node scripts/reset-db.js",
+    "db:seed:marketplace": "node scripts/seed-marketplace.js",
+    "tunnel": "node scripts/tunnel.js",
+    "live": "node scripts/tunnel.js",
+    "postinstall": "node -e \"console.log('AnyBid ready — run npm run db:init then npm start')\""
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^1.4.5-lts.1",
+    "mysql2": "^3.12.0",
+    "nodemailer": "^6.9.16",
+    "razorpay": "^2.9.5",
+    "uuid": "^11.0.5"
+  },
+  "devDependencies": {
+    "localtunnel": "^2.0.2"
+  }
+}

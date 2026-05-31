@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Register — AnyBid</title>
+  <link rel="stylesheet" href="/css/main.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-top">
+      <a href="/" class="logo">Any<span>Bid</span></a>
+    </div>
+  </header>
+  <main class="auth-page">
+    <div class="auth-card">
+      <h1>Create account</h1>
+      <p class="sub">Buy, sell, and bid on anything</p>
+      <div id="alert"></div>
+      <form id="reg-form">
+        <div class="form-group">
+          <label>Full name</label>
+          <input name="name" required />
+        </div>
+        <div class="form-group">
+          <label>Email</label>
+          <input type="email" name="email" required />
+        </div>
+        <div class="form-group">
+          <label>Phone (for SMS alerts later)</label>
+          <input name="phone" placeholder="+91..." />
+        </div>
+        <div class="form-group">
+          <label>Password</label>
+          <input type="password" name="password" required minlength="6" />
+        </div>
+        <button type="submit" class="btn btn-primary btn-block">Register</button>
+      </form>
+      <p style="margin-top:1rem;text-align:center;font-size:0.9rem">
+        Have an account? <a href="/login.html">Login</a>
+      </p>
+    </div>
+  </main>
+  <script src="/js/api.js"></script>
+  <script>
+    document.getElementById('reg-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      try {
+        const data = await api('/auth/register', {
+          method: 'POST',
+          body: JSON.stringify({
+            name: fd.get('name'),
+            email: fd.get('email'),
+            phone: fd.get('phone'),
+            password: fd.get('password'),
+          }),
+        });
+        setToken(data.token);
+        setUser(data.user);
+        location.href = '/';
+      } catch (err) {
+        document.getElementById('alert').innerHTML = `<div class="alert alert-error">${err.message}</div>`;
+      }
+    });
+  </script>
+</body>
+</html>
