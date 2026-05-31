@@ -5,4 +5,4 @@ RUN npm ci --omit=dev
 COPY . .
 RUN mkdir -p uploads
 EXPOSE 3000
-CMD ["sh", "-c", "node scripts/init-db.js && node scripts/seed-marketplace.js && node server/index.js"]
+CMD ["sh", "-c", "node scripts/init-db.js && node server/index.js"]

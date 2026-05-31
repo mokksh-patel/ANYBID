@@ -4,7 +4,7 @@ services:
     runtime: node
     plan: free
     buildCommand: npm install
-    startCommand: node scripts/init-db.js && node scripts/seed-marketplace.js && node server/index.js
+    startCommand: node scripts/init-db.js && node server/index.js
     envVars:
       - key: NODE_VERSION
         value: 22
