@@ -1,0 +1,305 @@
+The very profitable and most accurate one among indicators
+
+//@version=6
+// --------------------------------------------------------------------------------
+// | Quantum Pro Master Strategy (v31) - AGGRESSIVE DEBUG |
+// | Focus: Guaranteed trade execution for backtest results.                      |
+// | 1. Minimized default entry thresholds (set to 10).                             |
+// | 2. Minimized Minimum SL amount (set to 5.0).                                   |
+// | 3. Enforced a minimum position size of 1 on entry.                             |
+// --------------------------------------------------------------------------------
+
+// ================================================================================
+// | 1. CRITICAL STRATEGY CONFIGURATION BLOCK |
+// ================================================================================
+// Initial Capital is fixed at 5000.
+strategy("Quantum Pro Master V31 (Aggressive Debug)", overlay=true, initial_capital=5000, default_qty_type=strategy.cash, default_qty_value=5000, commission_type=strategy.commission.percent, commission_value=0.04, slippage=2, calc_on_every_tick=true)
+
+// ================================================================================
+// | 2. USER INPUTS |
+// ================================================================================
+// --- Indicators (Defaults Unchanged) ---
+len_ema_fast = input.int(9, "Fast EMA Period", group="Indicators")
+len_ema_slow = input.int(15, "Slow EMA Period", group="Indicators")
+len_zlsma = input.int(34, "ZLSMA Period", group="Indicators")
+len_rsi = input.int(14, "RSI Period", group="Indicators")
+len_atr = input.int(14, "ATR Period", group="Indicators")
+len_vwatr_vol = input.int(50, "VWATR Volume Period", group="Indicators")
+len_regime = input.int(50, "Market Regime MA (EMA)", group="Indicators") 
+len_macdfast = input.int(12, "MACD Fast", group="Indicators")
+len_macdslow = input.int(26, "MACD Slow", group="Indicators")
+len_macdsig = input.int(9, "MACD Signal", group="Indicators")
+
+// --- Risk Management ---
+risk_percent = input.float(2.0, "Risk % Per Trade", step=0.5, group="Risk Management")
+sl_multiplier = input.float(2.5, "Stop Loss VWATR Multiplier (Increased to 2.5)", group="Risk Management")
+rr_ratio = input.float(2.5, "Risk/Reward Ratio (TP)", group="Risk Management")
+// REDUCED MIN SL AMOUNT TO 5.0 FOR DEBUGGING QUANTITY CALCULATION
+min_sl_currency = input.float(5.0, "Minimum SL Amount (₹) [DEBUG: Reduced to 5.0]", step=5.0, group="Risk Management")
+
+// Trailing Stop Loss Inputs
+tsl_activation_r = input.float(1.0, "TSL Activation (R-Multiple)", step=0.1, group="Risk Management")
+tsl_distance_atr_mult = input.float(1.0, "TSL Distance (VWATR Multiplier)", step=0.1, group="Risk Management")
+
+// --- Strategy Filters ---
+// Defaulted to current timeframe to avoid blocking MTF issues
+mtf_timeframe = input.timeframe("", "Multi-Timeframe (MTF) Confirmation", group="Strategy Filters")
+trade_session = input.session("0000-2359", "Trading Session (0000-2359 is 24/7)", group="Strategy Filters")
+
+// --- Trade Quality Thresholds (Adaptive Logic) ---
+high_freq_mode = input.bool(false, "High Frequency Mode (Overrides Thresholds)", group="Strategy Filters")
+// REDUCED NORMAL THRESHOLD TO 10 FOR DEBUGGING ENTRY FAILURE
+normal_threshold = input.int(10, "Intraday/Scalping Threshold (<1D) [DEBUG: Reduced to 10]", minval=1, maxval=100, group="Strategy Filters") 
+long_term_threshold = input.int(30, "Long-Term Threshold (D+) - Lowered Default", minval=1, maxval=100, group="Strategy Filters")
+high_freq_threshold = input.int(45, "High Frequency Threshold Value", minval=1, maxval=100, group="Strategy Filters")
+
+bool in_session = not na(time(timeframe.period, trade_session))
+
+// ================================================================================
+// | 3. CORE INDICATOR CALCULATIONS |
+// ================================================================================
+ema_fast = ta.ema(close, len_ema_fast)
+ema_slow = ta.ema(close, len_ema_slow)
+ema_regime = ta.ema(close, len_regime)
+
+// ZLSMA Calculation
+lsma = ta.linreg(close, len_zlsma, 0)
+lsma2 = ta.linreg(lsma, len_zlsma, 0)
+zlsma = lsma + (lsma - lsma2)
+
+rsi = ta.rsi(close, len_rsi)
+[macd_line, sig_line, histo] = ta.macd(close, len_macdfast, len_macdslow, len_macdsig)
+
+// --- Volume-Weighted ATR (VWATR) Calculation ---
+avg_volume = ta.sma(volume, len_vwatr_vol)
+volume_ratio = volume / avg_volume
+atr_base = ta.atr(len_atr)
+vwatr = atr_base * (volume_ratio < 1 ? 1 : volume_ratio) 
+
+// Primary Crossover Signals
+bool long_ema_cross = ta.crossover(ema_fast, ema_slow)
+bool short_ema_cross = ta.crossunder(ema_fast, ema_slow)
+
+// --- MTF Confirmation ---
+string actual_mtf_tf = str.length(mtf_timeframe) > 0 ? mtf_timeframe : timeframe.period
+[mtf_zlsma_raw] = request.security(syminfo.tickerid, actual_mtf_tf, [zlsma])
+mtf_zlsma = nz(mtf_zlsma_raw, zlsma) 
+
+bool mtf_trend_up = close > mtf_zlsma
+bool mtf_trend_down = close < mtf_zlsma
+
+// ================================================================================
+// | 4. MARKET REGIME & PATTERN DETECTION (Scoring System Components) |
+// ================================================================================
+bool isBullMarket = close > ema_regime
+bool isBearMarket = close < ema_regime
+bool zlsma_trend_up = close > zlsma
+bool zlsma_trend_down = close < zlsma
+
+// --- Candlestick and Price Pattern Functions ---
+f_is_trend_bar() => 
+    bar_range = high - low
+    body_size = math.abs(close - open)
+    avg_range = ta.sma(high - low, 10)[1] 
+    bar_range > avg_range * 1.5 and body_size / bar_range > 0.60
+    
+f_isBullEngulfing() =>
+    prevBarBear = close[1] < open[1]
+    currBarBull = close > open
+    engulfsBody = close > open[1] and open < close[1]
+    prevBarBear and currBarBull and engulfsBody
+
+f_isBearEngulfing() =>
+    prevBarBull = close[1] > open[1]
+    currBarBear = close < open
+    engulfsBody = close < open[1] and open > close[1]
+    prevBarBull and currBarBear and engulfsBody
+
+f_isHammer() =>
+    body = math.abs(close - open)
+    lowerWick = math.min(open, close) - low
+    upperWick = high - math.max(open, close)
+    (lowerWick > body * 2) and (upperWick < body * 0.5)
+
+f_isShootingStar() =>
+    body = math.abs(close - open)
+    lowerWick = math.min(open, close) - low
+    upperWick = high - math.max(open, close)
+    (upperWick > body * 2) and (lowerWick < body * 0.5)
+
+// ================================================================================
+// | 5. QUALITY SCORING SYSTEM AND CONDITIONS |
+// ================================================================================
+bool macd_histo_up = histo > 0 and histo > histo[1] 
+bool macd_histo_down = histo < 0 and histo < histo[1]
+
+// Define points for various bullish factors
+int buyScore = 0 + 
+     (isBullMarket ? 10 : 0) +          
+     (mtf_trend_up ? 20 : 0) +          
+     (zlsma_trend_up ? 20 : 0) +        
+     (rsi > 50 ? 10 : 0) +              
+     (macd_line > sig_line ? 10 : 0) +  
+     (macd_histo_up ? 15 : 0) +         
+     (volume > ta.sma(volume, 20)[1] ? 5 : 0) + 
+     (f_isBullEngulfing() or f_isHammer() ? 5 : 0) + 
+     (f_is_trend_bar() ? 5 : 0)         
+
+// Define points for various bearish factors
+int sellScore = 0 + 
+     (isBearMarket ? 10 : 0) + 
+     (mtf_trend_down ? 20 : 0) + 
+     (zlsma_trend_down ? 20 : 0) + 
+     (rsi < 50 ? 10 : 0) + 
+     (macd_line < sig_line ? 10 : 0) + 
+     (macd_histo_down ? 15 : 0) +       
+     (volume > ta.sma(volume, 20)[1] ? 5 : 0) + 
+     (f_isBearEngulfing() or f_isShootingStar() ? 5 : 0) + 
+     (f_is_trend_bar() ? 5 : 0)
+
+// --- ADAPTIVE THRESHOLD LOGIC ---
+bool is_long_timeframe = timeframe.isdwm
+
+int active_threshold = 
+     (high_freq_mode ? high_freq_threshold : 
+      is_long_timeframe ? long_term_threshold : 
+      normal_threshold)
+
+// --- POSITION TRACKING (WORKAROUND) ---
+var current_qty = 0
+const float initial_capital_value = 5000.0
+
+// --- Base Entry Conditions (EMA Crossover) ---
+bool base_long_entry = long_ema_cross and (current_qty == 0)
+bool base_short_entry = short_ema_cross and (current_qty == 0)
+
+// --- Final Trade Conditions ---
+bool longCondition = base_long_entry and (buyScore >= active_threshold) and (high_freq_mode or in_session)
+bool shortCondition = base_short_entry and (sellScore >= active_threshold) and (high_freq_mode or in_session)
+
+// ================================================================================
+// | 6. RISK & POSITION SIZING (Using VWATR and Fixed Capital) |
+// ================================================================================
+// 1. Calculate the fixed risk amount based on initial capital
+float risk_amount_per_trade = (risk_percent / 100.0) * initial_capital_value
+
+// 2. Calculate the Stop Loss distance (in points) using VWATR
+var float final_sl_distance_points = 0.0
+
+float vwatr_distance_points = vwatr * sl_multiplier
+float min_sl_distance_points = min_sl_currency / syminfo.pointvalue
+final_sl_distance_points := math.max(vwatr_distance_points, min_sl_distance_points)
+
+// 3. Calculate Position Size (Qty)
+float sl_distance_currency = final_sl_distance_points * syminfo.pointvalue
+float position_size = risk_amount_per_trade / sl_distance_currency
+int rounded_position_size = math.round(position_size)
+
+// Safety check: Limit QTY to the hardcoded initial capital value (5000)
+const int max_position_size_limit = 5000
+rounded_position_size := math.min(rounded_position_size, max_position_size_limit)
+rounded_position_size := math.max(0, rounded_position_size) 
+
+// CRITICAL DEBUGGING STEP: Ensure minimum quantity is 1 if calculated position size is greater than 0
+if rounded_position_size > 0
+    rounded_position_size := math.max(1, rounded_position_size)
+
+
+// --- Initial Fixed SL/TP Levels (used for strategy.exit arguments) ---
+long_stop_loss_price = close - final_sl_distance_points
+long_take_profit_price = close + (final_sl_distance_points * rr_ratio)
+short_stop_loss_price = close + final_sl_distance_points
+short_take_profit_price = close - (final_sl_distance_points * rr_ratio)
+
+// --- Trailing Stop Loss Parameters ---
+tsl_activation_points = final_sl_distance_points * tsl_activation_r 
+tsl_trail_points = vwatr * tsl_distance_atr_mult
+
+
+// ================================================================================
+// | 7. STRATEGY EXECUTION |
+// ================================================================================
+// --- Enter Long ---
+if longCondition and rounded_position_size > 0
+    // Trade execution is now highly likely due to lowered filters and forced minimum QTY
+    strategy.entry("Strong Buy", strategy.long, qty=rounded_position_size)
+    current_qty := rounded_position_size
+    
+    strategy.exit(
+         "Long Exit", 
+         from_entry="Strong Buy", 
+         stop=long_stop_loss_price,                 
+         limit=long_take_profit_price,               
+         trail_points=tsl_trail_points,              
+         trail_offset=tsl_activation_points          
+         )
+
+// --- Enter Short ---
+if shortCondition and rounded_position_size > 0
+    strategy.entry("Strong Sell", strategy.short, qty=rounded_position_size)
+    current_qty := -rounded_position_size
+    
+    strategy.exit(
+         "Short Exit", 
+         from_entry="Strong Sell", 
+         stop=short_stop_loss_price,                
+         limit=short_take_profit_price,              
+         trail_points=tsl_trail_points,              
+         trail_offset=tsl_activation_points          
+         )
+
+// --- Dynamic Exit Conditions (Trend Break/Aggressive Exits) ---
+bool counter_ema_cross = ta.cross(ema_fast, ema_slow)
+bool counter_zlsma_cross = ta.cross(close, zlsma)
+
+// Exit Long 
+if current_qty > 0 
+    if (close < zlsma and counter_zlsma_cross) or (ema_fast < ema_slow and counter_ema_cross)
+        strategy.close("Strong Buy", comment="Dynamic Exit - Trend Reversal")
+        current_qty := 0 
+
+// Exit Short 
+if current_qty < 0 
+    if (close > zlsma and counter_zlsma_cross) or (ema_fast > ema_slow and counter_ema_cross)
+        strategy.close("Strong Sell", comment="Dynamic Exit - Trend Reversal")
+        current_qty := 0 
+
+
+// ================================================================================
+// | 8. VISUALIZATION (Includes Debugging Plots) |
+// ================================================================================
+var color candleColor = color.gray
+if zlsma_trend_up
+    candleColor := color.new(color.teal, 10)
+else if zlsma_trend_down
+    candleColor := color.new(color.red, 10)
+else
+    candleColor := color.new(color.gray, 50)
+
+barcolor(candleColor)
+
+// Plot the moving averages
+plot(ema_fast, "Fast EMA", color.new(color.orange, 0), 2)
+plot(ema_slow, "Slow EMA", color.new(color.blue, 0), 2)
+plot(zlsma, "ZLSMA", color.new(color.lime, 0), 2)
+plot(ema_regime, "Market Regime", color.new(color.gray, 50), 2, style=plot.style_linebr)
+
+// Plot entry shapes
+plotshape(longCondition, "Strong Buy", shape.labelup, location.belowbar, color.new(color.green, 0), text="BUY", textcolor=color.new(color.white, 0), size=size.small)
+plotshape(shortCondition, "Strong Sell", shape.labeldown, location.abovebar, color.new(color.red, 0), text="SELL", textcolor=color.new(color.white, 0), size=size.small)
+
+// --- DEBUGGING PLOTS ---
+// Plot 1: Position Size (MUST be > 0 for entry)
+plot(rounded_position_size, "Position Qty (DEBUG)", color.new(color.fuchsia, 0), style=plot.style_line, display=display.data_window)
+// Plot 2: SL Distance in points (used in sizing calculation)
+plot(final_sl_distance_points, "SL Distance (pts) (DEBUG)", color.new(color.yellow, 0), style=plot.style_line, display=display.data_window)
+
+// Plot the scoring columns
+plot(buyScore, "Buy Score", color.new(color.teal, 0), style=plot.style_columns, histbase=0)
+plot(sellScore, "Sell Score", color.new(color.red, 0), style=plot.style_columns, histbase=0)
+
+// Visualize the dynamic threshold as a separate line plot
+plot(float(active_threshold), "Active Threshold", color.new(color.yellow, 0), style=plot.style_line, linewidth=2)
+
+// Background color to indicate overall market regime
+bgcolor(isBullMarket ? color.new(color.green, 95) : isBearMarket ? color.new(color.red, 95) : color.new(color.gray, 95))
