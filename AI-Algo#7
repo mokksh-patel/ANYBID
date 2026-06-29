@@ -1,0 +1,366 @@
+//@version=6
+strategy("AQPRO Master Strategy", shorttitle="AQPRO MST",
+     overlay=true, initial_capital=100000,
+     default_qty_type=strategy.percent_of_equity,
+     default_qty_value=10,
+     commission_type=strategy.commission.percent,
+     commission_value=0.04,
+     slippage=2, calc_on_every_tick=false,
+     max_boxes_count=50, max_lines_count=50)
+
+// ══════════════════════════════════════════════════════
+// 1. INPUTS
+// ══════════════════════════════════════════════════════
+var g0 = "Engine Control"
+use_smc     = input.bool(true,  "Enable SMC Zone Engine",    group=g0)
+use_ema_eng = input.bool(true,  "Enable EMA/VWATR Engine",   group=g0)
+use_zl_eng  = input.bool(true,  "Enable ZLSMA/Score Engine", group=g0)
+min_engines = input.int(2,      "Min Engines to Agree",      group=g0, minval=1, maxval=3)
+
+var g1 = "Algo 1 — SMC"
+smc_atr_mult  = input.float(2.0, "Displacement ATR Mult", group=g1, minval=1.0, step=0.1)
+ema_trend_len = input.int(200,   "Trend EMA",             group=g1, minval=50)
+
+var g2 = "Algo 2 — EMA + VWATR"
+ema_fast_len = input.int(9,      "Fast EMA",             group=g2, minval=2)
+ema_slow_len = input.int(21,     "Slow EMA",             group=g2, minval=2)
+vwatr_len    = input.int(14,     "VWATR Period",         group=g2, minval=5)
+vwatr_mult   = input.float(1.5,  "VWATR SL Multiplier", group=g2, minval=1.0, step=0.1)
+rsi_thresh   = input.float(50.0, "RSI Threshold",        group=g2)
+min_body_atr = input.float(0.3,  "Min Body/ATR Ratio",  group=g2, minval=0.1, step=0.1)
+
+var g3 = "Algo 3 — ZLSMA + Score"
+zlsma_len  = input.int(34,    "ZLSMA Period",      group=g3, minval=10)
+ce_atr_len = input.int(22,    "CE ATR Period",     group=g3, minval=5)
+ce_mult    = input.float(3.0, "CE ATR Multiplier", group=g3, minval=1.0, step=0.1)
+min_score  = input.int(50,    "Min Quality Score", group=g3, minval=0, maxval=100)
+use_mtf    = input.bool(false, "MTF Confirmation", group=g3)
+mtf_tf     = input.timeframe("", "MTF Timeframe",  group=g3)
+
+var g4 = "Risk Management"
+risk_pct     = input.float(1.0, "Risk % Per Trade",     group=g4, minval=0.1, step=0.1)
+rr_target    = input.float(2.0, "Risk:Reward Target",   group=g4, minval=1.0, step=0.1)
+use_tsl      = input.bool(true, "Use Trailing Stop",    group=g4)
+tsl_act_mult = input.float(1.0, "TSL Activation x SL", group=g4, minval=0.1)
+
+var g5 = "Date Filter"
+start_date = input.time(timestamp("01 Jan 2022 00:00"), "Start Date", group=g5)
+end_date   = input.time(timestamp("01 Jan 2030 00:00"), "End Date",   group=g5)
+in_range   = time >= start_date and time <= end_date
+
+var g6 = "Display"
+show_table = input.bool(true,                   "Show Dashboard", group=g6)
+bull_col   = input.color(color.new(#00ffcc, 0), "Bull Color",     group=g6)
+bear_col   = input.color(color.new(#ff2e55, 0), "Bear Color",     group=g6)
+
+// ══════════════════════════════════════════════════════
+// 2. BASE CALCULATIONS — all global scope
+// ══════════════════════════════════════════════════════
+atr_base   = ta.atr(14)
+atr_filter = ta.atr(5)
+avg_vol    = ta.sma(volume, 20)
+vol_high   = volume > avg_vol
+vol_ratio  = volume / avg_vol
+ema_trend  = ta.ema(close, ema_trend_len)
+rsi_val    = ta.rsi(close, 14)
+[macd_l, macd_s, macd_h] = ta.macd(close, 12, 26, 9)
+commitment = math.abs(close - open) > atr_filter * min_body_atr
+vwatr      = ta.atr(vwatr_len) * math.max(1.0, vol_ratio)
+
+ema_fast     = ta.ema(close, ema_fast_len)
+ema_slow     = ta.ema(close, ema_slow_len)
+ema_cross_up = ta.crossover(ema_fast,  ema_slow)
+ema_cross_dn = ta.crossunder(ema_fast, ema_slow)
+
+lsma        = ta.linreg(close, zlsma_len, 0)
+lsma2       = ta.linreg(lsma,  zlsma_len, 0)
+zlsma       = lsma + (lsma - lsma2)
+zl_cross_up = ta.crossover(close,  zlsma)
+zl_cross_dn = ta.crossunder(close, zlsma)
+
+ce_atr      = ta.atr(ce_atr_len)
+ce_long_st  = ta.highest(high, ce_atr_len) - ce_atr * ce_mult
+ce_short_st = ta.lowest(low,  ce_atr_len)  + ce_atr * ce_mult
+
+var int ce_dir = 1
+ce_dir     := ce_dir == 1 ? (close < ce_long_st ? -1 : 1) : (close > ce_short_st ? 1 : -1)
+ce_stop     = ce_dir ==  1 ? ce_long_st  : ce_short_st
+ce_flip_b   = ce_dir ==  1 and ce_dir[1] == -1
+ce_flip_s   = ce_dir == -1 and ce_dir[1] ==  1
+
+actual_tf   = str.length(mtf_tf) > 0 ? mtf_tf : timeframe.period
+mtf_close   = request.security(syminfo.tickerid, actual_tf, close, lookahead=barmerge.lookahead_off)
+mtf_zl_line = ta.linreg(mtf_close, zlsma_len, 0)
+mtf_up      = not use_mtf or mtf_close > mtf_zl_line
+mtf_down    = not use_mtf or mtf_close < mtf_zl_line
+
+// ── Pattern detection pre-computed ───────────────────
+is_bull_engulf = close[1] < open[1] and close > open and close > open[1] and open < close[1]
+is_bear_engulf = close[1] > open[1] and close < open and close < open[1] and open > close[1]
+_br            = high - low
+_bd            = math.abs(close - open)
+_avg_br        = ta.sma(high - low, 10)[1]
+is_trend_bar   = _br > _avg_br * 1.5 and (_br > 0 ? _bd / _br : 0.0) > 0.6
+
+// ══════════════════════════════════════════════════════
+// 3. ALGO 1 — SMC ZONE ENGINE
+// ══════════════════════════════════════════════════════
+displaced        = math.abs(close - open) > atr_base * smc_atr_mult
+is_uptrend_smc   = close > ema_trend
+is_downtrend_smc = close < ema_trend
+
+type SMCZone
+    float top
+    float bot
+    bool  is_bull
+    bool  mitigated
+
+var zones = array.new<SMCZone>()
+
+if displaced and low > high[2] and close[1] > high[2] and array.size(zones) < 20
+    array.push(zones, SMCZone.new(high[2], low[2], true, false))
+if displaced and high < low[2] and close[1] < low[2] and array.size(zones) < 20
+    array.push(zones, SMCZone.new(high[2], low[2], false, false))
+
+bool smc_long  = false
+bool smc_short = false
+
+if array.size(zones) > 0
+    for i = array.size(zones) - 1 to 0
+        z = array.get(zones, i)
+        if not z.mitigated
+            if z.is_bull and is_uptrend_smc
+                if low < z.bot and close > z.bot and vol_high
+                    smc_long := true
+            if not z.is_bull and is_downtrend_smc
+                if high > z.top and close < z.top and vol_high
+                    smc_short := true
+            if (z.is_bull and close < z.bot - atr_base) or
+               (not z.is_bull and close > z.top + atr_base)
+                z.mitigated := true
+                array.set(zones, i, z)
+
+// ══════════════════════════════════════════════════════
+// 4. ALGO 2 — EMA + VWATR
+// ══════════════════════════════════════════════════════
+raw_ema_long  = ema_cross_up and ema_fast > ema_trend and
+     rsi_val > rsi_thresh and commitment and close > ema_slow
+raw_ema_short = ema_cross_dn and ema_fast < ema_trend and
+     rsi_val < rsi_thresh and commitment and close < ema_slow
+
+// ── State memory: hold EMA vote for N bars after trigger ─
+var int ema_long_hold  = 0
+var int ema_short_hold = 0
+ema_hold_bars = 5
+
+if raw_ema_long
+    ema_long_hold  := ema_hold_bars
+    ema_short_hold := 0
+if raw_ema_short
+    ema_short_hold := ema_hold_bars
+    ema_long_hold  := 0
+if ema_long_hold  > 0
+    ema_long_hold  -= 1
+if ema_short_hold > 0
+    ema_short_hold -= 1
+
+ema_vote_long  = not use_ema_eng or ema_long_hold  > 0
+ema_vote_short = not use_ema_eng or ema_short_hold > 0
+
+// ══════════════════════════════════════════════════════
+// 5. ALGO 3 — ZLSMA + SCORE
+// ══════════════════════════════════════════════════════
+buy_score  = 0
+buy_score  += close > ema_trend                  ? 15 : 0
+buy_score  += mtf_up                             ? 15 : 0
+buy_score  += close > zlsma                      ? 15 : 0
+buy_score  += ce_dir == 1                        ? 15 : 0
+buy_score  += rsi_val > 50 and rsi_val < 70      ? 15 : 0
+buy_score  += macd_h > 0                         ? 10 : 0
+buy_score  += vol_high                           ?  5 : 0
+buy_score  += is_bull_engulf or is_trend_bar     ?  5 : 0
+buy_score  += commitment                         ?  5 : 0
+
+sell_score = 0
+sell_score += close < ema_trend                  ? 15 : 0
+sell_score += mtf_down                           ? 15 : 0
+sell_score += close < zlsma                      ? 15 : 0
+sell_score += ce_dir == -1                       ? 15 : 0
+sell_score += rsi_val < 50 and rsi_val > 30      ? 15 : 0
+sell_score += macd_h < 0                         ? 10 : 0
+sell_score += vol_high                           ?  5 : 0
+sell_score += is_bear_engulf or is_trend_bar     ?  5 : 0
+sell_score += commitment                         ?  5 : 0
+
+// ── ZLSMA vote also uses hold memory ─────────────────
+raw_zl_long  = (zl_cross_up or ce_flip_b) and buy_score  >= min_score and mtf_up
+raw_zl_short = (zl_cross_dn or ce_flip_s) and sell_score >= min_score and mtf_down
+
+var int zl_long_hold  = 0
+var int zl_short_hold = 0
+zl_hold_bars = 5
+
+if raw_zl_long
+    zl_long_hold  := zl_hold_bars
+    zl_short_hold := 0
+if raw_zl_short
+    zl_short_hold := zl_hold_bars
+    zl_long_hold  := 0
+if zl_long_hold  > 0
+    zl_long_hold  -= 1
+if zl_short_hold > 0
+    zl_short_hold -= 1
+
+zl_vote_long  = not use_zl_eng or zl_long_hold  > 0
+zl_vote_short = not use_zl_eng or zl_short_hold > 0
+
+// ══════════════════════════════════════════════════════
+// 6. UNIFIED SIGNAL
+// ══════════════════════════════════════════════════════
+long_votes  = (use_smc     and smc_long        ? 1 : 0) +
+              (use_ema_eng and ema_vote_long    ? 1 : 0) +
+              (use_zl_eng  and zl_vote_long     ? 1 : 0)
+short_votes = (use_smc     and smc_short       ? 1 : 0) +
+              (use_ema_eng and ema_vote_short   ? 1 : 0) +
+              (use_zl_eng  and zl_vote_short    ? 1 : 0)
+
+active_engines = (use_smc ? 1 : 0) + (use_ema_eng ? 1 : 0) + (use_zl_eng ? 1 : 0)
+thresh         = math.min(min_engines, active_engines)
+
+// Only fire on the trigger bar — use raw signals for entry
+raw_long_trigger  = (smc_long or raw_ema_long or raw_zl_long)
+raw_short_trigger = (smc_short or raw_ema_short or raw_zl_short)
+
+final_long  = long_votes  >= thresh and raw_long_trigger  and in_range
+final_short = short_votes >= thresh and raw_short_trigger and in_range
+
+// ══════════════════════════════════════════════════════
+// 7. RISK & EXECUTION
+// ══════════════════════════════════════════════════════
+sl_dist  = math.max(vwatr * vwatr_mult, atr_base * 1.5)
+tp_dist  = sl_dist * rr_target
+tsl_act  = sl_dist * tsl_act_mult
+
+// Fixed: qty based on risk percent of equity divided by SL in points
+risk_usd = strategy.equity * (risk_pct / 100)
+qty_calc = sl_dist > 0 ? risk_usd / sl_dist : 1.0
+
+if in_range
+    if final_long and strategy.position_size <= 0
+        strategy.close("Short", comment="Rev→Long")
+        strategy.entry("Long",  strategy.long,  qty=qty_calc, comment="LONG ✦" + str.tostring(buy_score))
+    if final_short and strategy.position_size >= 0
+        strategy.close("Long",  comment="Rev→Short")
+        strategy.entry("Short", strategy.short, qty=qty_calc, comment="SHORT ✦" + str.tostring(sell_score))
+
+// ── Exits: only SL/TP/TSL — NO engine exit that fires immediately ─
+if strategy.position_size > 0
+    strategy.exit("Long Exit", "Long",
+         stop        = strategy.position_avg_price - sl_dist,
+         limit       = strategy.position_avg_price + tp_dist,
+         trail_points= use_tsl ? tsl_act : na,
+         trail_offset= use_tsl ? tsl_act * 0.1 : na)
+
+if strategy.position_size < 0
+    strategy.exit("Short Exit", "Short",
+         stop        = strategy.position_avg_price + sl_dist,
+         limit       = strategy.position_avg_price - tp_dist,
+         trail_points= use_tsl ? tsl_act : na,
+         trail_offset= use_tsl ? tsl_act * 0.1 : na)
+
+// ── Dynamic exit: only on confirmed CE reversal ───────
+// (NOT on vote count dropping — that killed trades in 2 bars)
+if strategy.position_size > 0  and ce_flip_s and close < zlsma
+    strategy.close("Long",  comment="CE Reversal")
+if strategy.position_size < 0  and ce_flip_b and close > zlsma
+    strategy.close("Short", comment="CE Reversal")
+
+// ══════════════════════════════════════════════════════
+// 8. VISUALS
+// ══════════════════════════════════════════════════════
+barcolor(ce_dir == 1 ? color.new(bull_col, 80) : color.new(bear_col, 80))
+
+plot(ema_fast,  "EMA Fast",  color.new(color.orange, 30), 1)
+plot(ema_slow,  "EMA Slow",  color.new(color.blue,   30), 1)
+plot(ema_trend, "EMA Trend", color.new(color.gray,   60), 1)
+plot(zlsma,     "ZLSMA",     color.new(ce_dir == 1 ? bull_col : bear_col, 20), 2)
+plot(ce_stop,   "CE Stop",   color.new(ce_dir == 1 ? bull_col : bear_col, 50), 1, style=plot.style_linebr)
+
+plotshape(final_long,  "LONG",  shape.labelup,   location.belowbar,
+     bull_col, size=size.normal, text="LONG",  textcolor=color.black)
+plotshape(final_short, "SHORT", shape.labeldown, location.abovebar,
+     bear_col, size=size.normal, text="SHORT", textcolor=color.white)
+
+var line sl_ln = na
+var line tp_ln = na
+if final_long or final_short
+    if not na(sl_ln)
+        line.delete(sl_ln)
+    if not na(tp_ln)
+        line.delete(tp_ln)
+    sl_p  = final_long ? close - sl_dist : close + sl_dist
+    tp_p  = final_long ? close + tp_dist : close - tp_dist
+    sl_ln := line.new(bar_index, sl_p, bar_index + 30, sl_p,
+         color=color.new(color.red,   10), width=1, style=line.style_dashed)
+    tp_ln := line.new(bar_index, tp_p, bar_index + 30, tp_p,
+         color=color.new(color.green, 10), width=1, style=line.style_dashed)
+
+// ══════════════════════════════════════════════════════
+// 9. DASHBOARD
+// ══════════════════════════════════════════════════════
+var table dash = table.new(position.top_right, 2, 13,
+     bgcolor=color.new(#0d1117, 5),
+     border_color=color.new(color.gray, 70), border_width=1,
+     frame_color=color.new(#00ffcc, 60), frame_width=1)
+
+c_head  = color.new(#0d1117,  0)
+c_row1  = color.new(#0e1419,  0)
+c_row2  = color.new(#161b22,  0)
+c_lbl   = color.new(color.gray, 20)
+c_green = color.new(#00ffcc,  0)
+c_red   = color.new(#ff2e55,  0)
+c_gold  = color.new(#ffd700,  0)
+c_white = color.new(color.white, 10)
+
+f_row(row, lbl, val, vc, bg) =>
+    table.cell(dash, 0, row, lbl, text_color=c_lbl, text_size=size.small, bgcolor=bg, text_halign=text.align_left)
+    table.cell(dash, 1, row, val, text_color=vc,    text_size=size.small, bgcolor=bg, text_halign=text.align_right)
+
+if show_table and barstate.islast
+    table.cell(dash, 0, 0, "AQPRO MASTER",
+         text_color=c_green, text_size=size.normal, bgcolor=c_head, text_halign=text.align_left)
+    table.cell(dash, 1, 0, syminfo.ticker + " " + timeframe.period,
+         text_color=c_lbl, text_size=size.small, bgcolor=c_head, text_halign=text.align_right)
+
+    sig_txt = strategy.position_size > 0 ? "▲ LONG ACTIVE"  :
+              strategy.position_size < 0 ? "▼ SHORT ACTIVE" : "— FLAT"
+    sig_col = strategy.position_size > 0 ? c_green :
+              strategy.position_size < 0 ? c_red   : c_lbl
+    sc      = ce_dir == 1 ? buy_score : sell_score
+    sc_col  = sc >= 80 ? c_green : sc >= 60 ? c_gold : c_red
+    sl_show = strategy.position_size > 0 ? strategy.position_avg_price - sl_dist :
+              strategy.position_size < 0 ? strategy.position_avg_price + sl_dist :
+              ce_dir == 1 ? close - sl_dist : close + sl_dist
+    tp_show = strategy.position_size > 0 ? strategy.position_avg_price + tp_dist :
+              strategy.position_size < 0 ? strategy.position_avg_price - tp_dist :
+              ce_dir == 1 ? close + tp_dist : close - tp_dist
+    eq_pct  = (strategy.equity - strategy.initial_capital) / strategy.initial_capital * 100
+
+    f_row(1,  "Position",    sig_txt, sig_col, c_row1)
+    f_row(2,  "Votes L/S",  str.tostring(long_votes) + " / " + str.tostring(short_votes) + " of " + str.tostring(active_engines), c_gold, c_row2)
+    f_row(3,  "Score",       str.tostring(sc) + " / 100", sc_col, c_row1)
+    f_row(4,  "Trend",       close > ema_trend ? "▲ BULL" : "▼ BEAR", close > ema_trend ? c_green : c_red, c_row2)
+    f_row(5,  "CE Bias",     ce_dir == 1 ? "LONG" : "SHORT", ce_dir == 1 ? c_green : c_red, c_row1)
+    f_row(6,  "RSI",         str.tostring(math.round(rsi_val, 1)), rsi_val > 70 ? c_red : rsi_val < 30 ? c_green : c_white, c_row2)
+    f_row(7,  "MACD",        macd_h > 0 ? "▲ Positive" : "▼ Negative", macd_h > 0 ? c_green : c_red, c_row1)
+    f_row(8,  "Volume",      vol_high ? "Surge" : "Normal", vol_high ? c_green : c_lbl, c_row2)
+    f_row(9,  "VWATR",       str.tostring(math.round(vwatr, 2)), c_white, c_row1)
+    f_row(10, "Stop Loss",   str.tostring(math.round(sl_show, 2)), c_red,   c_row2)
+    f_row(11, "Take Profit", str.tostring(math.round(tp_show, 2)), c_green, c_row1)
+    f_row(12, "Equity P&L",  str.tostring(math.round(eq_pct, 2)) + "%", eq_pct >= 0 ? c_green : c_red, c_row2)
+
+// ══════════════════════════════════════════════════════
+// 10. ALERTS
+// ══════════════════════════════════════════════════════
+alertcondition(final_long,  "AQPRO MST — LONG",  "AQPRO LONG SIGNAL | {{ticker}} | {{interval}} | Check dashboard for SL and TP.")
+alertcondition(final_short, "AQPRO MST — SHORT", "AQPRO SHORT SIGNAL | {{ticker}} | {{interval}} | Check dashboard for SL and TP.")
