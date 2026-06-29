@@ -1,5 +1,3 @@
-# AI-Algo
-
 //@version=6
 indicator("AlgoIntel Pro 15m", shorttitle="AI Pro", overlay=true, max_boxes_count=60, max_lines_count=60, max_labels_count=50, max_bars_back=500)
 
