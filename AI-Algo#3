@@ -1,0 +1,388 @@
+//@version=6
+strategy("AQPRO Master Strategy — MTF 4H/30m", shorttitle="AQPRO MTF",
+     overlay=true, initial_capital=100000,
+     default_qty_type=strategy.percent_of_equity,
+     default_qty_value=10,
+     commission_type=strategy.commission.percent,
+     commission_value=0.04,
+     slippage=2, calc_on_every_tick=false,
+     max_boxes_count=50, max_lines_count=50)
+
+// ══════════════════════════════════════════════════════
+// 1. INPUTS
+// ══════════════════════════════════════════════════════
+var g1 = "4H Structure Settings"
+htf_tf        = input.timeframe("240", "Higher Timeframe (Structure)", group=g1)
+zlsma_len     = input.int(34,    "ZLSMA Period",         group=g1, minval=10)
+ce_atr_len    = input.int(22,    "CE ATR Period",        group=g1, minval=5)
+ce_mult       = input.float(3.0, "CE Multiplier",        group=g1, minval=1.0, step=0.1)
+ema_trend_len = input.int(200,   "Trend EMA (4H)",       group=g1, minval=50)
+smc_atr_mult  = input.float(2.0, "SMC Displacement ATR", group=g1, minval=1.0, step=0.1)
+
+var g2 = "30m Entry Settings"
+ema_fast_len = input.int(9,     "Fast EMA",          group=g2, minval=2)
+ema_slow_len = input.int(21,    "Slow EMA",          group=g2, minval=2)
+rsi_len      = input.int(14,    "RSI Period",        group=g2, minval=5)
+min_score    = input.int(55,    "Min Entry Score",   group=g2, minval=0, maxval=100)
+min_body_atr = input.float(0.3, "Min Body/ATR",      group=g2, minval=0.1, step=0.1)
+
+var g3 = "Risk Management"
+risk_pct   = input.float(1.0, "Risk % Per Trade",      group=g3, minval=0.1, step=0.1)
+rr_target  = input.float(2.0, "Risk:Reward",           group=g3, minval=1.0, step=0.1)
+use_tsl    = input.bool(true,  "Trailing Stop",         group=g3)
+tsl_mult   = input.float(1.0, "TSL Activation x SL",   group=g3, minval=0.1)
+vwatr_mult = input.float(1.5, "SL Multiplier (VWATR)", group=g3, minval=1.0, step=0.1)
+
+var g4 = "Date Filter"
+start_date = input.time(timestamp("01 Jan 2022 00:00"), "Start", group=g4)
+end_date   = input.time(timestamp("01 Jan 2030 00:00"), "End",   group=g4)
+in_range   = time >= start_date and time <= end_date
+
+var g5 = "Display"
+show_table = input.bool(true,                   "Dashboard",  group=g5)
+bull_col   = input.color(color.new(#00ffcc, 0), "Bull Color", group=g5)
+bear_col   = input.color(color.new(#ff2e55, 0), "Bear Color", group=g5)
+
+// ══════════════════════════════════════════════════════
+// 2. 4H STRUCTURE
+// ══════════════════════════════════════════════════════
+f_htf_close  = request.security(syminfo.tickerid, htf_tf, close,  lookahead=barmerge.lookahead_off)
+f_htf_high   = request.security(syminfo.tickerid, htf_tf, high,   lookahead=barmerge.lookahead_off)
+f_htf_low    = request.security(syminfo.tickerid, htf_tf, low,    lookahead=barmerge.lookahead_off)
+f_htf_open   = request.security(syminfo.tickerid, htf_tf, open,   lookahead=barmerge.lookahead_off)
+f_htf_vol    = request.security(syminfo.tickerid, htf_tf, volume, lookahead=barmerge.lookahead_off)
+
+htf_lsma    = request.security(syminfo.tickerid, htf_tf,
+     ta.linreg(close, zlsma_len, 0), lookahead=barmerge.lookahead_off)
+htf_lsma2   = request.security(syminfo.tickerid, htf_tf,
+     ta.linreg(ta.linreg(close, zlsma_len, 0), zlsma_len, 0), lookahead=barmerge.lookahead_off)
+htf_zlsma   = htf_lsma + (htf_lsma - htf_lsma2)
+
+htf_ema200  = request.security(syminfo.tickerid, htf_tf,
+     ta.ema(close, ema_trend_len), lookahead=barmerge.lookahead_off)
+
+htf_ce_long = request.security(syminfo.tickerid, htf_tf,
+     ta.highest(high, ce_atr_len) - ta.atr(ce_atr_len) * ce_mult, lookahead=barmerge.lookahead_off)
+htf_ce_short= request.security(syminfo.tickerid, htf_tf,
+     ta.lowest(low, ce_atr_len) + ta.atr(ce_atr_len) * ce_mult, lookahead=barmerge.lookahead_off)
+
+var int htf_ce_dir = 1
+htf_ce_dir := htf_ce_dir == 1 ?
+     (f_htf_close < htf_ce_long  ? -1 : 1) :
+     (f_htf_close > htf_ce_short ?  1 : -1)
+htf_ce_stop = htf_ce_dir == 1 ? htf_ce_long : htf_ce_short
+
+htf_rsi     = request.security(syminfo.tickerid, htf_tf,
+     ta.rsi(close, rsi_len), lookahead=barmerge.lookahead_off)
+[htf_ml, htf_ms, htf_mh] = request.security(syminfo.tickerid, htf_tf,
+     ta.macd(close, 12, 26, 9), lookahead=barmerge.lookahead_off)
+
+htf_avg_vol  = request.security(syminfo.tickerid, htf_tf,
+     ta.sma(volume, 20), lookahead=barmerge.lookahead_off)
+htf_atr_base = request.security(syminfo.tickerid, htf_tf,
+     ta.atr(14), lookahead=barmerge.lookahead_off)
+
+htf_vol_high = f_htf_vol > htf_avg_vol
+htf_body     = math.abs(f_htf_close - f_htf_open)
+htf_displaced= htf_body > htf_atr_base * smc_atr_mult
+
+// 4H Bias — all three must agree
+htf_bull_bias = f_htf_close > htf_ema200 and htf_ce_dir == 1  and f_htf_close > htf_zlsma
+htf_bear_bias = f_htf_close < htf_ema200 and htf_ce_dir == -1 and f_htf_close < htf_zlsma
+
+// 4H SMC Zone Detection
+var float htf_bull_zone_top = na
+var float htf_bull_zone_bot = na
+var float htf_bear_zone_top = na
+var float htf_bear_zone_bot = na
+
+if htf_displaced and f_htf_low > f_htf_high[2] and f_htf_close[1] > f_htf_high[2]
+    htf_bull_zone_top := f_htf_high[2]
+    htf_bull_zone_bot := f_htf_low[2]
+
+if htf_displaced and f_htf_high < f_htf_low[2] and f_htf_close[1] < f_htf_low[2]
+    htf_bear_zone_top := f_htf_high[2]
+    htf_bear_zone_bot := f_htf_low[2]
+
+near_bull_zone = not na(htf_bull_zone_bot) and
+     close <= htf_bull_zone_top + htf_atr_base and
+     close >= htf_bull_zone_bot - htf_atr_base
+
+near_bear_zone = not na(htf_bear_zone_top) and
+     close >= htf_bear_zone_bot - htf_atr_base and
+     close <= htf_bear_zone_top + htf_atr_base
+
+// ══════════════════════════════════════════════════════
+// 3. 30m ENTRY INDICATORS
+// ══════════════════════════════════════════════════════
+atr_30      = ta.atr(14)
+atr_filter  = ta.atr(5)
+avg_vol_30  = ta.sma(volume, 20)
+vol_high_30 = volume > avg_vol_30
+vol_ratio   = volume / avg_vol_30
+vwatr       = ta.atr(14) * math.max(1.0, vol_ratio)
+rsi_30      = ta.rsi(close, rsi_len)
+commitment  = math.abs(close - open) > atr_filter * min_body_atr
+
+ema_fast     = ta.ema(close, ema_fast_len)
+ema_slow     = ta.ema(close, ema_slow_len)
+ema_cross_up = ta.crossover(ema_fast,  ema_slow)
+ema_cross_dn = ta.crossunder(ema_fast, ema_slow)
+
+lsma_30      = ta.linreg(close, zlsma_len, 0)
+lsma2_30     = ta.linreg(lsma_30, zlsma_len, 0)
+zlsma_30     = lsma_30 + (lsma_30 - lsma2_30)
+zl_cross_up  = ta.crossover(close,  zlsma_30)
+zl_cross_dn  = ta.crossunder(close, zlsma_30)
+
+[macd_l, macd_s, macd_h] = ta.macd(close, 12, 26, 9)
+
+ce_long_30  = ta.highest(high, ce_atr_len) - ta.atr(ce_atr_len) * ce_mult
+ce_short_30 = ta.lowest(low,  ce_atr_len)  + ta.atr(ce_atr_len) * ce_mult
+
+var int ce_dir_30 = 1
+ce_dir_30 := ce_dir_30 == 1 ?
+     (close < ce_long_30  ? -1 : 1) :
+     (close > ce_short_30 ?  1 : -1)
+ce_stop_30  = ce_dir_30 == 1  ? ce_long_30  : ce_short_30
+ce_flip_b30 = ce_dir_30 == 1  and ce_dir_30[1] == -1
+ce_flip_s30 = ce_dir_30 == -1 and ce_dir_30[1] ==  1
+
+is_bull_engulf = close[1] < open[1] and close > open and close > open[1] and open < close[1]
+is_bear_engulf = close[1] > open[1] and close < open and close < open[1] and open > close[1]
+_br            = high - low
+_bd            = math.abs(close - open)
+_avg_br        = ta.sma(high - low, 10)[1]
+is_trend_bar   = _br > _avg_br * 1.5 and (_br > 0 ? _bd / _br : 0.0) > 0.6
+
+// ══════════════════════════════════════════════════════
+// 4. ENTRY SCORE
+// ══════════════════════════════════════════════════════
+buy_score  = 0
+buy_score  += htf_bull_bias                      ? 25 : 0
+buy_score  += near_bull_zone                     ? 15 : 0
+buy_score  += ce_dir_30 == 1                     ? 15 : 0
+buy_score  += close > zlsma_30                   ? 10 : 0
+buy_score  += ema_fast > ema_slow                ? 10 : 0
+buy_score  += rsi_30 > 50 and rsi_30 < 70        ? 10 : 0
+buy_score  += macd_h > 0                         ?  5 : 0
+buy_score  += vol_high_30                        ?  5 : 0
+buy_score  += is_bull_engulf or is_trend_bar     ?  5 : 0
+
+sell_score = 0
+sell_score += htf_bear_bias                      ? 25 : 0
+sell_score += near_bear_zone                     ? 15 : 0
+sell_score += ce_dir_30 == -1                    ? 15 : 0
+sell_score += close < zlsma_30                   ? 10 : 0
+sell_score += ema_fast < ema_slow                ? 10 : 0
+sell_score += rsi_30 < 50 and rsi_30 > 30        ? 10 : 0
+sell_score += macd_h < 0                         ?  5 : 0
+sell_score += vol_high_30                        ?  5 : 0
+sell_score += is_bear_engulf or is_trend_bar     ?  5 : 0
+
+// ══════════════════════════════════════════════════════
+// 5. SIGNALS — 4H bias MUST agree
+// ══════════════════════════════════════════════════════
+trigger_long  = ema_cross_up or ce_flip_b30 or zl_cross_up
+trigger_short = ema_cross_dn or ce_flip_s30 or zl_cross_dn
+
+final_long  = trigger_long  and htf_bull_bias and
+     buy_score  >= min_score and commitment and in_range
+final_short = trigger_short and htf_bear_bias and
+     sell_score >= min_score and commitment and in_range
+
+// ══════════════════════════════════════════════════════
+// 6. RISK & EXECUTION
+// ══════════════════════════════════════════════════════
+sl_dist  = math.max(vwatr * vwatr_mult, atr_30)
+tp_dist  = sl_dist * rr_target
+tsl_act  = sl_dist * tsl_mult
+qty_calc = sl_dist > 0 ? (strategy.equity * (risk_pct / 100)) / sl_dist : 1.0
+
+if in_range
+    if final_long and strategy.position_size <= 0
+        strategy.close("Short", comment="Rev→Long")
+        strategy.entry("Long",  strategy.long,  qty=qty_calc,
+             comment="L✦" + str.tostring(buy_score))
+    if final_short and strategy.position_size >= 0
+        strategy.close("Long",  comment="Rev→Short")
+        strategy.entry("Short", strategy.short, qty=qty_calc,
+             comment="S✦" + str.tostring(sell_score))
+
+if strategy.position_size > 0
+    strategy.exit("Long Exit", "Long",
+         stop        = strategy.position_avg_price - sl_dist,
+         limit       = strategy.position_avg_price + tp_dist,
+         trail_points= use_tsl ? tsl_act : na,
+         trail_offset= use_tsl ? tsl_act * 0.1 : na)
+
+if strategy.position_size < 0
+    strategy.exit("Short Exit", "Short",
+         stop        = strategy.position_avg_price + sl_dist,
+         limit       = strategy.position_avg_price - tp_dist,
+         trail_points= use_tsl ? tsl_act : na,
+         trail_offset= use_tsl ? tsl_act * 0.1 : na)
+
+// Exit only on 4H bias flip — not 30m noise
+htf_flip_bear = htf_ce_dir == -1 and htf_ce_dir[1] == 1
+htf_flip_bull = htf_ce_dir ==  1 and htf_ce_dir[1] == -1
+
+if strategy.position_size > 0 and htf_flip_bear
+    strategy.close("Long",  comment="4H Flip")
+if strategy.position_size < 0 and htf_flip_bull
+    strategy.close("Short", comment="4H Flip")
+
+// ══════════════════════════════════════════════════════
+// 7. VISUALS
+// ══════════════════════════════════════════════════════
+barcolor(htf_bull_bias ? color.new(bull_col, 85) :
+         htf_bear_bias ? color.new(bear_col, 85) :
+         color.new(color.gray, 90))
+
+plot(ema_fast,   "EMA Fast 30m", color.new(color.orange, 40), 1)
+plot(ema_slow,   "EMA Slow 30m", color.new(color.blue,   40), 1)
+plot(zlsma_30,   "ZLSMA 30m",
+     color.new(ce_dir_30 == 1 ? bull_col : bear_col, 30), 2)
+plot(ce_stop_30, "CE Stop 30m",
+     color.new(ce_dir_30 == 1 ? bull_col : bear_col, 60), 1,
+     style=plot.style_linebr)
+
+plot(htf_zlsma,   "ZLSMA 4H",    color.new(color.yellow, 20), 2,
+     style=plot.style_stepline)
+plot(htf_ema200,  "EMA200 4H",   color.new(color.gray,   40), 1,
+     style=plot.style_stepline)
+plot(htf_ce_stop, "CE Stop 4H",
+     color.new(htf_ce_dir == 1 ? bull_col : bear_col, 30), 1,
+     style=plot.style_stepline)
+
+// 4H Zone boxes
+var box bull_box = na
+var box bear_box = na
+
+if not na(htf_bull_zone_bot) and not na(htf_bull_zone_top)
+    if not na(bull_box)
+        box.delete(bull_box)
+    bull_box := box.new(bar_index - 50, htf_bull_zone_top,
+         bar_index + 50, htf_bull_zone_bot,
+         border_color=color.new(bull_col, 40),
+         bgcolor=color.new(bull_col, 88),
+         border_style=line.style_dashed)
+
+if not na(htf_bear_zone_bot) and not na(htf_bear_zone_top)
+    if not na(bear_box)
+        box.delete(bear_box)
+    bear_box := box.new(bar_index - 50, htf_bear_zone_top,
+         bar_index + 50, htf_bear_zone_bot,
+         border_color=color.new(bear_col, 40),
+         bgcolor=color.new(bear_col, 88),
+         border_style=line.style_dashed)
+
+// Signal shapes
+plotshape(final_long,  "LONG",  shape.labelup,   location.belowbar,
+     bull_col, size=size.normal, text="LONG",  textcolor=color.black)
+plotshape(final_short, "SHORT", shape.labeldown, location.abovebar,
+     bear_col, size=size.normal, text="SHORT", textcolor=color.white)
+
+// SL / TP lines — each if body on new line (Pine v6 requirement)
+var line sl_ln = na
+var line tp_ln = na
+if final_long or final_short
+    if not na(sl_ln)
+        line.delete(sl_ln)
+    if not na(tp_ln)
+        line.delete(tp_ln)
+    sl_p  = final_long ? close - sl_dist : close + sl_dist
+    tp_p  = final_long ? close + tp_dist : close - tp_dist
+    sl_ln := line.new(bar_index, sl_p, bar_index + 40, sl_p,
+         color=color.new(color.red,   10), width=1, style=line.style_dashed)
+    tp_ln := line.new(bar_index, tp_p, bar_index + 40, tp_p,
+         color=color.new(color.green, 10), width=1, style=line.style_dashed)
+
+// ══════════════════════════════════════════════════════
+// 8. DASHBOARD
+// ══════════════════════════════════════════════════════
+var table dash = table.new(position.top_right, 2, 15,
+     bgcolor=color.new(#0d1117, 5),
+     border_color=color.new(color.gray, 70), border_width=1,
+     frame_color=color.new(#00ffcc, 60), frame_width=1)
+
+c_head  = color.new(#0d1117,  0)
+c_row1  = color.new(#0e1419,  0)
+c_row2  = color.new(#161b22,  0)
+c_lbl   = color.new(color.gray, 20)
+c_green = color.new(#00ffcc,  0)
+c_red   = color.new(#ff2e55,  0)
+c_gold  = color.new(#ffd700,  0)
+c_white = color.new(color.white, 10)
+
+f_row(row, lbl, val, vc, bg) =>
+    table.cell(dash, 0, row, lbl, text_color=c_lbl,
+         text_size=size.small, bgcolor=bg, text_halign=text.align_left)
+    table.cell(dash, 1, row, val, text_color=vc,
+         text_size=size.small, bgcolor=bg, text_halign=text.align_right)
+
+if show_table and barstate.islast
+    table.cell(dash, 0, 0, "AQPRO MTF",
+         text_color=c_green, text_size=size.normal,
+         bgcolor=c_head, text_halign=text.align_left)
+    table.cell(dash, 1, 0, "4H → 30m",
+         text_color=c_gold, text_size=size.small,
+         bgcolor=c_head, text_halign=text.align_right)
+
+    bias_txt = htf_bull_bias ? "▲ BULL BIAS" :
+               htf_bear_bias ? "▼ BEAR BIAS" : "◈ NEUTRAL"
+    bias_col = htf_bull_bias ? c_green :
+               htf_bear_bias ? c_red   : c_lbl
+
+    sc     = htf_bull_bias ? buy_score : sell_score
+    sc_col = sc >= 75 ? c_green : sc >= 55 ? c_gold : c_red
+
+    sig_txt = strategy.position_size > 0 ? "▲ LONG"  :
+              strategy.position_size < 0 ? "▼ SHORT" : "FLAT"
+    sig_col = strategy.position_size > 0 ? c_green :
+              strategy.position_size < 0 ? c_red   : c_lbl
+
+    sl_show = strategy.position_size > 0 ?
+              strategy.position_avg_price - sl_dist :
+              strategy.position_size < 0 ?
+              strategy.position_avg_price + sl_dist :
+              close - sl_dist
+    tp_show = strategy.position_size > 0 ?
+              strategy.position_avg_price + tp_dist :
+              strategy.position_size < 0 ?
+              strategy.position_avg_price - tp_dist :
+              close + tp_dist
+
+    eq_pct  = (strategy.equity - strategy.initial_capital) /
+               strategy.initial_capital * 100
+
+    f_row(1,  "4H Bias",     bias_txt, bias_col, c_row1)
+    f_row(2,  "4H CE",       htf_ce_dir == 1 ? "LONG" : "SHORT",
+          htf_ce_dir == 1 ? c_green : c_red, c_row2)
+    f_row(3,  "4H RSI",      str.tostring(math.round(htf_rsi, 1)),
+          htf_rsi > 70 ? c_red : htf_rsi < 30 ? c_green : c_white, c_row1)
+    f_row(4,  "4H MACD",     htf_mh > 0 ? "▲ POS" : "▼ NEG",
+          htf_mh > 0 ? c_green : c_red, c_row2)
+    f_row(5,  "4H Zone",     near_bull_zone ? "✓ Bull" :
+          near_bear_zone ? "✓ Bear" : "—",
+          near_bull_zone ? c_green : near_bear_zone ? c_red : c_lbl, c_row1)
+    f_row(6,  "30m CE",      ce_dir_30 == 1 ? "LONG" : "SHORT",
+          ce_dir_30 == 1 ? c_green : c_red, c_row2)
+    f_row(7,  "30m RSI",     str.tostring(math.round(rsi_30, 1)),
+          rsi_30 > 70 ? c_red : rsi_30 < 30 ? c_green : c_white, c_row1)
+    f_row(8,  "Score",       str.tostring(sc) + " / 100", sc_col, c_row2)
+    f_row(9,  "Position",    sig_txt, sig_col, c_row1)
+    f_row(10, "Stop Loss",   str.tostring(math.round(sl_show, 2)), c_red,   c_row2)
+    f_row(11, "Take Profit", str.tostring(math.round(tp_show, 2)), c_green, c_row1)
+    f_row(12, "R:R",         str.tostring(rr_target) + "x",        c_gold,  c_row2)
+    f_row(13, "VWATR",       str.tostring(math.round(vwatr, 2)),   c_white, c_row1)
+    f_row(14, "Equity P&L",  str.tostring(math.round(eq_pct, 2)) + "%",
+          eq_pct >= 0 ? c_green : c_red, c_row2)
+
+// ══════════════════════════════════════════════════════
+// 9. ALERTS
+// ══════════════════════════════════════════════════════
+alertcondition(final_long,  "AQPRO MTF — LONG",
+     "AQPRO LONG | {{ticker}} | 4H Bias: BULL | Check dashboard for SL/TP.")
+alertcondition(final_short, "AQPRO MTF — SHORT",
+     "AQPRO SHORT | {{ticker}} | 4H Bias: BEAR | Check dashboard for SL/TP.")
