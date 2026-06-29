@@ -1,0 +1,451 @@
+//@version=6
+indicator("Quantum Master Algo [Clean Edition]",
+     shorttitle="QMA Pro", overlay=true,
+     max_labels_count=200, max_boxes_count=150, max_lines_count=150)
+
+grp_ema = "── EMA Settings ──"
+show_ema9   = input.bool(true,  "Show EMA 9",   group=grp_ema)
+show_ema15  = input.bool(true,  "Show EMA 15",  group=grp_ema)
+show_ema300 = input.bool(true,  "Show EMA 300", group=grp_ema)
+ema9_col    = input.color(color.new(#00E5FF,0), "EMA 9",   group=grp_ema)
+ema15_col   = input.color(color.new(#FF6D00,0), "EMA 15",  group=grp_ema)
+ema300_col  = input.color(color.new(#E91E63,0), "EMA 300", group=grp_ema)
+
+grp_fvg = "── Fair Value Gap ──"
+show_fvg      = input.bool(true, "Show FVGs",    group=grp_fvg)
+show_fvg_bull = input.bool(true, "Bullish FVG",  group=grp_fvg)
+show_fvg_bear = input.bool(true, "Bearish FVG",  group=grp_fvg)
+fvg_bull_col  = input.color(color.new(#00C853,80), "Bull FVG", group=grp_fvg)
+fvg_bear_col  = input.color(color.new(#D50000,80), "Bear FVG", group=grp_fvg)
+fvg_extend    = input.int(30, "FVG Box Width (bars)", minval=5, maxval=100, group=grp_fvg)
+
+grp_ob = "── Order Blocks ──"
+show_ob     = input.bool(true, "Show Order Blocks", group=grp_ob)
+ob_lookback = input.int(10,   "OB Lookback",       minval=3, maxval=30, group=grp_ob)
+ob_bull_col = input.color(color.new(#00BCD4,80), "Bull OB", group=grp_ob)
+ob_bear_col = input.color(color.new(#FF5722,80), "Bear OB", group=grp_ob)
+
+grp_cs = "── Candlestick Patterns ──"
+show_cs     = input.bool(true, "Show Candle Patterns", group=grp_cs)
+show_engulf = input.bool(true, "Engulfing",            group=grp_cs)
+show_hammer = input.bool(true, "Hammer/Hanging Man",   group=grp_cs)
+show_star   = input.bool(true, "Morning/Evening Star", group=grp_cs)
+show_shoot  = input.bool(true, "Shooting Star",        group=grp_cs)
+show_doji   = input.bool(true, "Doji",                 group=grp_cs)
+show_pinbar = input.bool(true, "Pin Bar",              group=grp_cs)
+cs_cooldown = input.int(5, "Min Bars Between Labels", minval=1, maxval=20, group=grp_cs)
+
+grp_cp = "── Chart Patterns ──"
+show_cp     = input.bool(true, "Show Chart Patterns", group=grp_cp)
+show_hs     = input.bool(true, "Head & Shoulders",    group=grp_cp)
+show_dt_db  = input.bool(true, "Double Top/Bottom",   group=grp_cp)
+show_tri    = input.bool(true, "Triangles",           group=grp_cp)
+show_wedge  = input.bool(true, "Wedges",              group=grp_cp)
+cp_cooldown = input.int(20, "Min Bars Between Chart Patterns", minval=5, maxval=100, group=grp_cp)
+
+grp_sess = "── Sessions ──"
+show_sessions = input.bool(true, "Show Sessions",    group=grp_sess)
+show_asia     = input.bool(true, "Asian Session",    group=grp_sess)
+show_london   = input.bool(true, "London Session",   group=grp_sess)
+show_ny       = input.bool(true, "New York Session", group=grp_sess)
+asia_col      = input.color(color.new(#7C4DFF,93), "Asia",   group=grp_sess)
+london_col    = input.color(color.new(#0091EA,93), "London", group=grp_sess)
+ny_col        = input.color(color.new(#00C853,93), "NY",     group=grp_sess)
+
+grp_liq = "── Liquidity ──"
+show_liq     = input.bool(true, "Show Liquidity", group=grp_liq)
+liq_lookback = input.int(20, "Lookback", minval=5, maxval=100, group=grp_liq)
+
+grp_acc = "── Display ──"
+show_acc     = input.bool(true, "Show Accuracy %", group=grp_acc)
+show_targets = input.bool(true, "Show Targets",    group=grp_acc)
+
+body     = math.abs(close - open)
+rng      = high - low
+uw       = high - math.max(close, open)
+lw       = math.min(close, open) - low
+is_bull  = close > open
+is_bear  = close < open
+avg_body = ta.sma(body, 14)
+atr      = ta.atr(14)
+atr_sma  = ta.sma(atr, 20)
+ema9     = ta.ema(close, 9)
+ema15    = ta.ema(close, 15)
+ema300   = ta.ema(close, 300)
+
+plot(show_ema9   ? ema9   : na, "EMA 9",   color=ema9_col,   linewidth=1)
+plot(show_ema15  ? ema15  : na, "EMA 15",  color=ema15_col,  linewidth=1)
+plot(show_ema300 ? ema300 : na, "EMA 300", color=ema300_col, linewidth=2)
+
+is_asia   = time(timeframe.period, "0000-0859:1234567", "Asia/Tokyo")
+is_london = time(timeframe.period, "0800-1659:1234567", "Europe/London")
+is_ny     = time(timeframe.period, "1330-2200:1234567", "America/New_York")
+bgcolor(show_sessions and show_asia   and not na(is_asia)   ? asia_col   : na, title="Asia")
+bgcolor(show_sessions and show_london and not na(is_london) ? london_col : na, title="London")
+bgcolor(show_sessions and show_ny     and not na(is_ny)     ? ny_col     : na, title="NY")
+
+bool bull_fvg_now = low > high[2] and body[1] > avg_body[1] * 1.5
+bool bear_fvg_now = high < low[2] and body[1] > avg_body[1] * 1.5
+var int last_fvg_bar = 0
+fvg_ready = bar_index - last_fvg_bar >= 5
+
+if show_fvg and barstate.isconfirmed and fvg_ready
+    if show_fvg_bull and bull_fvg_now
+        box.new(bar_index - 2, low, bar_index + fvg_extend, high[2],
+             border_color=color.new(#00C853,30), bgcolor=fvg_bull_col, border_width=1)
+        if show_acc
+            label.new(bar_index, (low + high[2]) / 2, "BFVG ~72%",
+                 color=color.new(#00C853,15), textcolor=color.white,
+                 style=label.style_label_right, size=size.tiny)
+        last_fvg_bar := bar_index
+    if show_fvg_bear and bear_fvg_now
+        box.new(bar_index - 2, low[2], bar_index + fvg_extend, high,
+             border_color=color.new(#D50000,30), bgcolor=fvg_bear_col, border_width=1)
+        if show_acc
+            label.new(bar_index, (low[2] + high) / 2, "SFVG ~68%",
+                 color=color.new(#D50000,15), textcolor=color.white,
+                 style=label.style_label_right, size=size.tiny)
+        last_fvg_bar := bar_index
+
+strong_bull = close > close[ob_lookback] * 1.008 and is_bull and body > avg_body * 1.5
+strong_bear = close < close[ob_lookback] * 0.992 and is_bear and body > avg_body * 1.5
+var int last_ob_bar = 0
+ob_ready = bar_index - last_ob_bar >= 8
+
+if show_ob and barstate.isconfirmed and ob_ready
+    if strong_bull
+        for i = 1 to ob_lookback
+            if close[i] < open[i]
+                box.new(bar_index - i, high[i], bar_index + 20, low[i],
+                     border_color=color.new(#00BCD4,15), bgcolor=ob_bull_col, border_width=1)
+                label.new(bar_index - i, high[i], "OB+ ~65%",
+                     color=color.new(#00BCD4,15), textcolor=color.white,
+                     style=label.style_label_lower_right, size=size.tiny)
+                last_ob_bar := bar_index
+                break
+    if strong_bear
+        for i = 1 to ob_lookback
+            if close[i] > open[i]
+                box.new(bar_index - i, high[i], bar_index + 20, low[i],
+                     border_color=color.new(#FF5722,15), bgcolor=ob_bear_col, border_width=1)
+                label.new(bar_index - i, low[i], "OB- ~63%",
+                     color=color.new(#FF5722,15), textcolor=color.white,
+                     style=label.style_label_upper_right, size=size.tiny)
+                last_ob_bar := bar_index
+                break
+
+var int last_bull_cs = 0
+var int last_bear_cs = 0
+bull_cs_ready = bar_index - last_bull_cs >= cs_cooldown
+bear_cs_ready = bar_index - last_bear_cs >= cs_cooldown
+
+bull_engulf = is_bull and is_bear[1] and close > open[1] and open < close[1] and body > body[1] * 1.2
+bear_engulf = is_bear and is_bull[1] and close < open[1] and open > close[1] and body > body[1] * 1.2
+if show_cs and show_engulf and barstate.isconfirmed
+    if bull_engulf and bull_cs_ready
+        label.new(bar_index, low - atr * 0.5, "Engulf ~68%",
+             color=color.new(#00C853,10), textcolor=color.white,
+             style=label.style_label_up, size=size.small)
+        if show_targets
+            line.new(bar_index, close, bar_index + 12, close + atr * 2.5,
+                 color=color.new(#00C853,40), style=line.style_dashed, width=1)
+        last_bull_cs := bar_index
+    if bear_engulf and bear_cs_ready
+        label.new(bar_index, high + atr * 0.5, "Engulf ~67%",
+             color=color.new(#D50000,10), textcolor=color.white,
+             style=label.style_label_down, size=size.small)
+        if show_targets
+            line.new(bar_index, close, bar_index + 12, close - atr * 2.5,
+                 color=color.new(#D50000,40), style=line.style_dashed, width=1)
+        last_bear_cs := bar_index
+
+hammer = lw >= body * 2.2 and uw <= body * 0.4 and rng > atr * 0.6
+if show_cs and show_hammer and barstate.isconfirmed
+    if hammer and is_bull and bull_cs_ready
+        label.new(bar_index, low - atr * 0.5, "Hmr ~62%",
+             color=color.new(#00C853,15), textcolor=color.white,
+             style=label.style_label_up, size=size.tiny)
+        last_bull_cs := bar_index
+    if hammer and is_bear and bear_cs_ready
+        label.new(bar_index, high + atr * 0.5, "HngMn ~58%",
+             color=color.new(#FF5722,15), textcolor=color.white,
+             style=label.style_label_down, size=size.tiny)
+        last_bear_cs := bar_index
+
+shoot = uw >= body * 2.2 and lw <= body * 0.4 and rng > atr * 0.6
+if show_cs and show_shoot and barstate.isconfirmed
+    if shoot and is_bear and bear_cs_ready
+        label.new(bar_index, high + atr * 0.5, "ShStar ~64%",
+             color=color.new(#F44336,15), textcolor=color.white,
+             style=label.style_label_down, size=size.tiny)
+        if show_targets
+            line.new(bar_index, close, bar_index + 10, close - atr * 2,
+                 color=color.new(#F44336,50), style=line.style_dashed, width=1)
+        last_bear_cs := bar_index
+    if shoot and is_bull and bull_cs_ready
+        label.new(bar_index, low - atr * 0.5, "InvHmr ~55%",
+             color=color.new(#4CAF50,15), textcolor=color.white,
+             style=label.style_label_up, size=size.tiny)
+        last_bull_cs := bar_index
+
+morn_star = is_bear[2] and body[1] < avg_body[1] * 0.4 and is_bull and close > (open[2] + close[2]) / 2 and body > avg_body
+eve_star  = is_bull[2] and body[1] < avg_body[1] * 0.4 and is_bear and close < (open[2] + close[2]) / 2 and body > avg_body
+if show_cs and show_star and barstate.isconfirmed
+    if morn_star and bull_cs_ready
+        label.new(bar_index, low[1] - atr * 0.6, "MornStar ~72%",
+             color=color.new(#00E676,10), textcolor=color.white,
+             style=label.style_label_up, size=size.small)
+        if show_targets
+            line.new(bar_index, close, bar_index + 15, close + atr * 3,
+                 color=color.new(#00E676,40), style=line.style_dashed, width=1)
+        last_bull_cs := bar_index
+    if eve_star and bear_cs_ready
+        label.new(bar_index, high[1] + atr * 0.6, "EveStar ~70%",
+             color=color.new(#FF1744,10), textcolor=color.white,
+             style=label.style_label_down, size=size.small)
+        if show_targets
+            line.new(bar_index, close, bar_index + 15, close - atr * 3,
+                 color=color.new(#FF1744,40), style=line.style_dashed, width=1)
+        last_bear_cs := bar_index
+
+doji = body <= rng * 0.08 and rng > atr * 0.5
+var int last_doji = 0
+if show_cs and show_doji and doji and barstate.isconfirmed and bar_index - last_doji >= cs_cooldown * 2
+    label.new(bar_index, high + atr * 0.3, "Doji",
+         color=color.new(#9C27B0,20), textcolor=color.white,
+         style=label.style_label_down, size=size.tiny)
+    last_doji := bar_index
+
+bull_pin = lw > body * 2.8 and lw > uw * 2.5 and rng > atr * 0.8 and not hammer
+bear_pin = uw > body * 2.8 and uw > lw * 2.5 and rng > atr * 0.8 and not shoot
+if show_cs and show_pinbar and barstate.isconfirmed
+    if bull_pin and bull_cs_ready
+        label.new(bar_index, low - atr * 0.5, "BullPin ~65%",
+             color=color.new(#64FFDA,15), textcolor=color.white,
+             style=label.style_label_up, size=size.tiny)
+        last_bull_cs := bar_index
+    if bear_pin and bear_cs_ready
+        label.new(bar_index, high + atr * 0.5, "BearPin ~64%",
+             color=color.new(#FF6E40,15), textcolor=color.white,
+             style=label.style_label_down, size=size.tiny)
+        last_bear_cs := bar_index
+
+pivot_high = ta.pivothigh(high, 5, 5)
+pivot_low  = ta.pivotlow(low, 5, 5)
+
+var float ph1 = na, var int ph1_idx = na
+var float ph2 = na, var int ph2_idx = na
+var float ph3 = na, var int ph3_idx = na
+var float pl1 = na, var int pl1_idx = na
+var float pl2 = na, var int pl2_idx = na
+var float pl3 = na, var int pl3_idx = na
+
+if not na(pivot_high)
+    ph3 := ph2 , ph3_idx := ph2_idx
+    ph2 := ph1 , ph2_idx := ph1_idx
+    ph1 := pivot_high , ph1_idx := bar_index - 5
+
+if not na(pivot_low)
+    pl3 := pl2 , pl3_idx := pl2_idx
+    pl2 := pl1 , pl2_idx := pl1_idx
+    pl1 := pivot_low , pl1_idx := bar_index - 5
+
+var int last_cp_bull = 0
+var int last_cp_bear = 0
+cp_bull_ready = bar_index - last_cp_bull >= cp_cooldown
+cp_bear_ready = bar_index - last_cp_bear >= cp_cooldown
+
+if show_cp and show_dt_db and not na(pivot_high) and barstate.isconfirmed and not na(ph1) and not na(ph2) and cp_bear_ready
+    tol = atr * 1.5
+    if math.abs(ph1 - ph2) < tol and ph1 > ema300
+        line.new(ph2_idx, ph2, ph1_idx, ph1, color=color.new(#F44336,20), width=2, style=line.style_dotted)
+        label.new(ph1_idx, ph1 + atr, "DblTop ~71%",
+             color=color.new(#F44336,5), textcolor=color.white,
+             style=label.style_label_down, size=size.small)
+        last_cp_bear := bar_index
+
+if show_cp and show_dt_db and not na(pivot_low) and barstate.isconfirmed and not na(pl1) and not na(pl2) and cp_bull_ready
+    tol = atr * 1.5
+    if math.abs(pl1 - pl2) < tol and pl1 < ema300
+        line.new(pl2_idx, pl2, pl1_idx, pl1, color=color.new(#00C853,20), width=2, style=line.style_dotted)
+        label.new(pl1_idx, pl1 - atr, "DblBot ~72%",
+             color=color.new(#00C853,5), textcolor=color.white,
+             style=label.style_label_up, size=size.small)
+        last_cp_bull := bar_index
+
+if show_cp and show_hs and not na(pivot_high) and barstate.isconfirmed and not na(ph1) and not na(ph2) and not na(ph3) and cp_bear_ready
+    tol = atr * 3
+    if ph2 > ph1 * 1.005 and ph2 > ph3 * 1.005 and math.abs(ph1 - ph3) < tol
+        neckline = not na(pl1) and not na(pl2) ? math.min(pl1, pl2) : pl1
+        label.new(ph2_idx, ph2 + atr * 1.2,
+             "H&S ~74%\nNeck:" + str.tostring(math.round(neckline, 2)),
+             color=color.new(#9C27B0,5), textcolor=color.white,
+             style=label.style_label_down, size=size.normal)
+        line.new(ph3_idx, ph3, ph2_idx, ph2, color=color.new(#9C27B0,20), width=1)
+        line.new(ph2_idx, ph2, ph1_idx, ph1, color=color.new(#9C27B0,20), width=1)
+        last_cp_bear := bar_index
+
+if show_cp and show_hs and not na(pivot_low) and barstate.isconfirmed and not na(pl1) and not na(pl2) and not na(pl3) and cp_bull_ready
+    tol = atr * 3
+    if pl2 < pl1 * 0.995 and pl2 < pl3 * 0.995 and math.abs(pl1 - pl3) < tol
+        neckline = not na(ph1) and not na(ph2) ? math.max(ph1, ph2) : ph1
+        label.new(pl2_idx, pl2 - atr * 1.2,
+             "InvH&S ~73%\nNeck:" + str.tostring(math.round(neckline, 2)),
+             color=color.new(#00BCD4,5), textcolor=color.white,
+             style=label.style_label_up, size=size.normal)
+        line.new(pl3_idx, pl3, pl2_idx, pl2, color=color.new(#00BCD4,20), width=1)
+        line.new(pl2_idx, pl2, pl1_idx, pl1, color=color.new(#00BCD4,20), width=1)
+        last_cp_bull := bar_index
+
+if show_cp and (not na(pivot_high) or not na(pivot_low)) and barstate.isconfirmed
+    if not na(ph1) and not na(ph2) and not na(pl1) and not na(pl2)
+        ph_d   = math.max(ph1_idx - ph2_idx, 1)
+        pl_d   = math.max(pl1_idx - pl2_idx, 1)
+        ph_sl  = (ph1 - ph2) / ph_d
+        pl_sl  = (pl1 - pl2) / pl_d
+        ph_flat = math.abs(ph_sl) < atr * 0.0005
+        pl_flat = math.abs(pl_sl) < atr * 0.0005
+        if show_tri
+            if ph_flat and pl_sl > 0 and cp_bull_ready
+                label.new(bar_index - 5, (ph1 + pl1) / 2, "AscTri ~68%",
+                     color=color.new(#76FF03,10), textcolor=color.white,
+                     style=label.style_label_right, size=size.tiny)
+                last_cp_bull := bar_index
+            if ph_sl < 0 and pl_flat and cp_bear_ready
+                label.new(bar_index - 5, (ph1 + pl1) / 2, "DescTri ~67%",
+                     color=color.new(#FF6D00,10), textcolor=color.white,
+                     style=label.style_label_right, size=size.tiny)
+                last_cp_bear := bar_index
+            if ph_sl < 0 and pl_sl > 0 and cp_bull_ready
+                label.new(bar_index - 5, (ph1 + pl1) / 2, "SymTri ~60%",
+                     color=color.new(#FFD600,10), textcolor=color.white,
+                     style=label.style_label_right, size=size.tiny)
+                last_cp_bull := bar_index
+        if show_wedge
+            if ph_sl > 0 and pl_sl > 0 and pl_sl > ph_sl * 1.2 and cp_bear_ready
+                label.new(bar_index - 5, ph1 + atr, "RisingWedge ~70%",
+                     color=color.new(#FF3D00,10), textcolor=color.white,
+                     style=label.style_label_down, size=size.small)
+                last_cp_bear := bar_index
+            if ph_sl < 0 and pl_sl < 0 and pl_sl < ph_sl * 1.2 and cp_bull_ready
+                label.new(bar_index - 5, pl1 - atr, "FallWedge ~72%",
+                     color=color.new(#00E676,10), textcolor=color.white,
+                     style=label.style_label_up, size=size.small)
+                last_cp_bull := bar_index
+
+prev_high  = ta.highest(high, liq_lookback)[1]
+prev_low   = ta.lowest(low,   liq_lookback)[1]
+bull_sweep = high > prev_high and close < prev_high and body > avg_body
+bear_sweep = low  < prev_low  and close > prev_low  and body > avg_body
+eqh = math.abs(high - high[1]) < atr * 0.08 and math.abs(high - high[2]) < atr * 0.12
+eql = math.abs(low  - low[1])  < atr * 0.08 and math.abs(low  - low[2])  < atr * 0.12
+
+var int last_sweep = 0
+sweep_ready = bar_index - last_sweep >= 8
+if show_liq and barstate.isconfirmed and sweep_ready
+    if bull_sweep
+        label.new(bar_index, high + atr * 0.4, "Liq Sweep ~66%",
+             color=color.new(#FF6F00,10), textcolor=color.white,
+             style=label.style_label_down, size=size.tiny)
+        last_sweep := bar_index
+    if bear_sweep
+        label.new(bar_index, low - atr * 0.4, "Liq Sweep ~64%",
+             color=color.new(#1565C0,10), textcolor=color.white,
+             style=label.style_label_up, size=size.tiny)
+        last_sweep := bar_index
+
+plotshape(show_liq and eqh, "EQH", shape.triangledown, location.abovebar, color.new(#FF6F00,20), size=size.tiny, text="EQH")
+plotshape(show_liq and eql, "EQL", shape.triangleup,   location.belowbar, color.new(#1565C0,20), size=size.tiny, text="EQL")
+
+gap_up   = low  > high[1]
+gap_down = high < low[1]
+high_vol = atr  > atr_sma * 1.6
+plotshape(gap_up,   "Gap Up",   shape.arrowup,   location.belowbar, color.new(#00C853,20), size=size.tiny, text="GAP+")
+plotshape(gap_down, "Gap Down", shape.arrowdown, location.abovebar, color.new(#F44336,20), size=size.tiny, text="GAP-")
+bgcolor(high_vol ? color.new(#FF6F00,97) : na, title="High Vol")
+
+var table dash = table.new(position.top_right, 2, 15,
+     border_color=color.new(color.gray,60), border_width=1,
+     bgcolor=color.new(#0D1117,5))
+
+if barstate.islast
+    table.cell(dash, 0, 0, "QMA PRO", text_color=color.white,
+         bgcolor=color.new(#1565C0,5), text_size=size.small, text_halign=text.align_center)
+    table.cell(dash, 1, 0, timeframe.period + " TF", text_color=#FFD600,
+         bgcolor=color.new(#1565C0,5), text_size=size.small, text_halign=text.align_center)
+    bias   = ema9 > ema300 ? "BULL" : "BEAR"
+    biasbg = ema9 > ema300 ? color.new(#00C853,15) : color.new(#D50000,15)
+    table.cell(dash, 0, 1, "Trend Bias", text_color=color.white, bgcolor=color.new(#161B22,5), text_size=size.tiny)
+    table.cell(dash, 1, 1, bias,         text_color=color.white, bgcolor=biasbg,               text_size=size.tiny)
+    xstat = ema9 > ema15 ? "9 > 15" : "9 < 15"
+    xbg   = ema9 > ema15 ? color.new(#00C853,25) : color.new(#D50000,25)
+    table.cell(dash, 0, 2, "EMA Cross", text_color=color.white, bgcolor=color.new(#161B22,5), text_size=size.tiny)
+    table.cell(dash, 1, 2, xstat,       text_color=color.white, bgcolor=xbg,                 text_size=size.tiny)
+    sess  = not na(is_asia) ? "ASIA" : not na(is_london) ? "LONDON" : not na(is_ny) ? "NY" : "CLOSED"
+    table.cell(dash, 0, 3, "Session", text_color=color.white, bgcolor=color.new(#161B22,5), text_size=size.tiny)
+    table.cell(dash, 1, 3, sess,      text_color=color.white, bgcolor=color.new(#161B22,5), text_size=size.tiny)
+    vstat = high_vol ? "HIGH VOL" : "NORMAL"
+    vbg   = high_vol ? color.new(#FF6F00,15) : color.new(#00C853,35)
+    table.cell(dash, 0, 4, "Volatility", text_color=color.white, bgcolor=color.new(#161B22,5), text_size=size.tiny)
+    table.cell(dash, 1, 4, vstat,        text_color=color.white, bgcolor=vbg,                 text_size=size.tiny)
+    lstat = bull_sweep ? "SWEPT UP" : bear_sweep ? "SWEPT DOWN" : eqh ? "EQH ABOVE" : eql ? "EQL BELOW" : "CLEAN"
+    lbg   = bull_sweep or bear_sweep ? color.new(#FF6F00,15) : color.new(#161B22,5)
+    table.cell(dash, 0, 5, "Liquidity", text_color=color.white, bgcolor=color.new(#161B22,5), text_size=size.tiny)
+    table.cell(dash, 1, 5, lstat,       text_color=color.white, bgcolor=lbg,                 text_size=size.tiny)
+    table.cell(dash, 0, 6, "LIVE SIGNALS", text_color=#FFD600,
+         bgcolor=color.new(#161B22,5), text_size=size.tiny, text_halign=text.align_center)
+    table.cell(dash, 1, 6, "ACC %", text_color=#FFD600,
+         bgcolor=color.new(#161B22,5), text_size=size.tiny, text_halign=text.align_center)
+    s1t = bull_engulf ? "Bull Engulf" : bear_engulf ? "Bear Engulf" : "—"
+    s1a = bull_engulf ? "68%" : bear_engulf ? "67%" : "—"
+    s1b = bull_engulf ? color.new(#00C853,20) : bear_engulf ? color.new(#D50000,20) : color.new(#161B22,5)
+    table.cell(dash, 0, 7, s1t, text_color=color.white, bgcolor=s1b, text_size=size.tiny)
+    table.cell(dash, 1, 7, s1a, text_color=color.white, bgcolor=s1b, text_size=size.tiny)
+    s2t = morn_star ? "Morn Star" : eve_star ? "Eve Star" : "—"
+    s2a = morn_star ? "72%" : eve_star ? "70%" : "—"
+    s2b = morn_star ? color.new(#00C853,20) : eve_star ? color.new(#D50000,20) : color.new(#161B22,5)
+    table.cell(dash, 0, 8, s2t, text_color=color.white, bgcolor=s2b, text_size=size.tiny)
+    table.cell(dash, 1, 8, s2a, text_color=color.white, bgcolor=s2b, text_size=size.tiny)
+    s3t = hammer and is_bull ? "Hammer" : hammer and is_bear ? "Hang Man" : shoot and is_bear ? "Shoot Star" : "—"
+    s3a = hammer or shoot ? "62%" : "—"
+    s3b = (hammer and is_bull) ? color.new(#00C853,20) : (hammer and is_bear) or (shoot and is_bear) ? color.new(#D50000,20) : color.new(#161B22,5)
+    table.cell(dash, 0, 9, s3t, text_color=color.white, bgcolor=s3b, text_size=size.tiny)
+    table.cell(dash, 1, 9, s3a, text_color=color.white, bgcolor=s3b, text_size=size.tiny)
+    s4t = bull_fvg_now ? "Bull FVG" : bear_fvg_now ? "Bear FVG" : "—"
+    s4a = bull_fvg_now ? "72%" : bear_fvg_now ? "68%" : "—"
+    s4b = bull_fvg_now ? color.new(#00C853,20) : bear_fvg_now ? color.new(#D50000,20) : color.new(#161B22,5)
+    table.cell(dash, 0, 10, s4t, text_color=color.white, bgcolor=s4b, text_size=size.tiny)
+    table.cell(dash, 1, 10, s4a, text_color=color.white, bgcolor=s4b, text_size=size.tiny)
+    s5t = strong_bull ? "Bull OB" : strong_bear ? "Bear OB" : "—"
+    s5a = strong_bull or strong_bear ? "64%" : "—"
+    s5b = strong_bull ? color.new(#00BCD4,25) : strong_bear ? color.new(#FF5722,25) : color.new(#161B22,5)
+    table.cell(dash, 0, 11, s5t, text_color=color.white, bgcolor=s5b, text_size=size.tiny)
+    table.cell(dash, 1, 11, s5a, text_color=color.white, bgcolor=s5b, text_size=size.tiny)
+    s6t = bull_sweep ? "Liq Sweep Up" : bear_sweep ? "Liq Sweep Dn" : "—"
+    s6a = bull_sweep or bear_sweep ? "65%" : "—"
+    s6b = bull_sweep or bear_sweep ? color.new(#FF6F00,20) : color.new(#161B22,5)
+    table.cell(dash, 0, 12, s6t, text_color=color.white, bgcolor=s6b, text_size=size.tiny)
+    table.cell(dash, 1, 12, s6a, text_color=color.white, bgcolor=s6b, text_size=size.tiny)
+    s7t = doji ? "Doji" : gap_up ? "Gap Up" : gap_down ? "Gap Down" : "—"
+    s7a = doji ? "55%" : gap_up or gap_down ? "Fill?" : "—"
+    table.cell(dash, 0, 13, s7t, text_color=color.white, bgcolor=color.new(#161B22,5), text_size=size.tiny)
+    table.cell(dash, 1, 13, s7a, text_color=color.white, bgcolor=color.new(#161B22,5), text_size=size.tiny)
+    table.cell(dash, 0, 14, "ATR14", text_color=color.gray, bgcolor=color.new(#161B22,5), text_size=size.tiny)
+    table.cell(dash, 1, 14, str.tostring(math.round(atr, 2)), text_color=color.gray, bgcolor=color.new(#161B22,5), text_size=size.tiny)
+
+alertcondition(bull_engulf,        "Bull Engulfing",  "Bull Engulf ~68%")
+alertcondition(bear_engulf,        "Bear Engulfing",  "Bear Engulf ~67%")
+alertcondition(morn_star,          "Morning Star",    "Morning Star ~72%")
+alertcondition(eve_star,           "Evening Star",    "Evening Star ~70%")
+alertcondition(bull_sweep,         "Liq Sweep Up",    "Liquidity Swept Above")
+alertcondition(bear_sweep,         "Liq Sweep Down",  "Liquidity Swept Below")
+alertcondition(bull_fvg_now,       "Bull FVG",        "Bullish FVG ~72%")
+alertcondition(bear_fvg_now,       "Bear FVG",        "Bearish FVG ~68%")
+alertcondition(strong_bull,        "Bull OB",         "Bull Order Block ~65%")
+alertcondition(strong_bear,        "Bear OB",         "Bear Order Block ~63%")
+alertcondition(doji,               "Doji",            "Doji Indecision")
+alertcondition(high_vol,           "High Vol",        "ATR Spike - Caution")
+alertcondition(hammer and is_bull, "Hammer",          "Hammer ~62%")
+alertcondition(shoot  and is_bear, "Shooting Star",   "Shooting Star ~64%")
+alertcondition(gap_up,             "Gap Up",          "Price Gap Up")
+alertcondition(gap_down,           "Gap Down",        "Price Gap Down")
