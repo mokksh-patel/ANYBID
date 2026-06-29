@@ -1,0 +1,746 @@
+//@version=6
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║   QMA v9 — CLEAN UI EDITION                                      ║
+// ║   Chart: EMA + OB + FVG + BUY/SELL only                         ║
+// ║   Table: Full analysis — WHY the signal fired                    ║
+// ║   Signal: Fires ONLY when 2+ confirmed confluences align         ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
+indicator("QMA v9 [Clean UI]", shorttitle="QMA v9", overlay=true,
+     max_labels_count=100, max_boxes_count=150, max_lines_count=150)
+
+// ══════════════════════════════════════════════════════════════
+//  THEME ENGINE
+// ══════════════════════════════════════════════════════════════
+g_theme = "🎨 Theme"
+theme    = input.string("Dark Pro", "Theme",
+     options=["Dark Pro","Neon Night","Clean Light","Stealth","Midnight Gold","Blood Moon"],
+     group=g_theme)
+dash_pos = input.string("Top Right", "Dashboard Position",
+     options=["Top Right","Top Left","Bottom Right","Bottom Left"], group=g_theme)
+
+t_bull  = theme=="Neon Night"?#00FF41 : theme=="Clean Light"?#1E7E34 : theme=="Stealth"?#4CAF50 : theme=="Midnight Gold"?#FFD700 : theme=="Blood Moon"?#FF6600 : #00E676
+t_bear  = theme=="Neon Night"?#FF0040 : theme=="Clean Light"?#C62828 : theme=="Stealth"?#EF5350 : theme=="Midnight Gold"?#FF3030 : theme=="Blood Moon"?#FF1744 : #FF1744
+t_warn  = theme=="Neon Night"?#FFE000 : theme=="Clean Light"?#E65100 : theme=="Stealth"?#FFA726 : theme=="Midnight Gold"?#FFA500 : theme=="Blood Moon"?#FF8000 : #FFCA28
+t_info  = theme=="Neon Night"?#00EEFF : theme=="Clean Light"?#0277BD : theme=="Stealth"?#78909C : theme=="Midnight Gold"?#00E5FF : theme=="Blood Moon"?#FF4D6A : #29B6F6
+t_neut  = theme=="Neon Night"?#607D8B : theme=="Clean Light"?#607D8B : theme=="Stealth"?#546E7A : theme=="Midnight Gold"?#A09060 : theme=="Blood Moon"?#994444 : #546E7A
+t_white = theme=="Clean Light"?color.new(#111111,0) : color.new(#FFFFFF,0)
+
+dash_bg  = theme=="Clean Light"?color.new(#F5F7FA,4) : theme=="Neon Night"?color.new(#010108,4) : theme=="Midnight Gold"?color.new(#060400,4) : theme=="Blood Moon"?color.new(#060000,4) : color.new(#0A0D12,4)
+dash_bd  = theme=="Clean Light"?color.new(#90A4AE,40) : theme=="Neon Night"?color.new(#00FF41,40) : theme=="Midnight Gold"?color.new(#DAA520,30) : theme=="Blood Moon"?color.new(#CC0000,28) : color.new(#1E3A5F,45)
+cell_bg  = theme=="Clean Light"?color.new(#E8EDF2,5) : theme=="Neon Night"?color.new(#030312,5) : theme=="Midnight Gold"?color.new(#0D0A00,5) : theme=="Blood Moon"?color.new(#100000,5) : color.new(#0D1117,4)
+hdr_bg   = theme=="Clean Light"?color.new(#1565C0,10) : theme=="Neon Night"?color.new(#001A33,8) : theme=="Midnight Gold"?color.new(#1A1000,8) : theme=="Blood Moon"?color.new(#2D0000,8) : color.new(#0D2137,6)
+hdr_txt  = theme=="Clean Light"?#FFFFFF : theme=="Neon Night"?#00FF41 : theme=="Midnight Gold"?#FFD700 : theme=="Blood Moon"?#FF5555 : #4A9EFF
+
+dpos = dash_pos=="Top Left"?position.top_left : dash_pos=="Bottom Right"?position.bottom_right : dash_pos=="Bottom Left"?position.bottom_left : position.top_right
+
+// ══════════════════════════════════════════════════════════════
+//  INPUTS
+// ══════════════════════════════════════════════════════════════
+g1 = "── EMAs ──"
+show_e9   = input.bool(true,  "EMA 9",   group=g1)
+show_e21  = input.bool(true,  "EMA 21",  group=g1)
+show_e200 = input.bool(true,  "EMA 200", group=g1)
+c_e9      = input.color(color.new(#00E5FF,0), "EMA 9 color",   group=g1)
+c_e21     = input.color(color.new(#FF6D00,0), "EMA 21 color",  group=g1)
+c_e200    = input.color(color.new(#E91E63,0), "EMA 200 color", group=g1)
+
+g2 = "── HTF Trend ──"
+htf_w  = input.timeframe("W",   "Weekly TF",  group=g2)
+htf_d  = input.timeframe("D",   "Daily TF",   group=g2)
+htf_4h = input.timeframe("240", "4H TF",      group=g2)
+
+g3 = "── Sessions (NY time) ──"
+show_kz   = input.bool(true, "Highlight Kill Zones", group=g3)
+show_sess = input.bool(true, "Highlight Sessions",   group=g3)
+
+g4 = "── Order Blocks ──"
+show_ob = input.bool(true, "Show Order Blocks", group=g4)
+ob_lb   = input.int(10,   "OB Lookback",       group=g4, minval=3, maxval=30)
+ob_ext  = input.int(30,   "OB Right Extension",group=g4, minval=5, maxval=100)
+
+g5 = "── FVG ──"
+show_fvg = input.bool(true, "Show Fair Value Gaps", group=g5)
+fvg_ext  = input.int(30,   "FVG Right Extension",  group=g5, minval=5, maxval=100)
+
+g6 = "── Signal ──"
+min_conf     = input.int(4,    "Min Confirmations for Signal", group=g6, minval=2, maxval=8,
+     tooltip="Confluences required. 3=more signals, 5=fewer/higher quality. Default 4 recommended.")
+sig_cool     = input.int(20,   "Signal Cooldown (bars)",       group=g6, minval=5, maxval=100,
+     tooltip="Minimum bars between signals. Higher = fewer signals in choppy markets.")
+block_sideways = input.bool(true, "Block signals in SIDEWAYS market", group=g6,
+     tooltip="When ADX<25 and EMA spread is tight, market is ranging. Disable signals to avoid gambling.")
+ema_cross_req  = input.bool(true, "Require EMA 9/21 crossover near signal", group=g6,
+     tooltip="Only signal when EMA 9 has crossed EMA 21 within recent bars (trend just started).")
+ema_cross_bars = input.int(5, "EMA Cross lookback (bars)", group=g6, minval=1, maxval=20,
+     tooltip="How many bars back to look for an EMA crossover.")
+
+// ══════════════════════════════════════════════════════════════
+//  CORE CALCULATIONS
+// ══════════════════════════════════════════════════════════════
+o = open, h = high, l = low, c = close
+body    = math.abs(c - o)
+rng     = h - l
+bull    = c > o
+bear    = c < o
+avgbody = ta.sma(body, 20)
+atr     = ta.atr(14)
+vol     = volume
+avgvol  = ta.sma(vol, 20)
+relvol  = vol / avgvol
+
+ema9    = ta.ema(c, 9)
+ema21   = ta.ema(c, 21)
+ema200  = ta.ema(c, 200)
+
+// EMAs on chart
+plot(show_e9   ? ema9   : na, "EMA 9",   color=c_e9,  linewidth=1)
+plot(show_e21  ? ema21  : na, "EMA 21",  color=c_e21, linewidth=1)
+plot(show_e200 ? ema200 : na, "EMA 200", color=c_e200,linewidth=2)
+
+// RSI
+rsi = ta.rsi(c, 14)
+
+// ADX
+[diplus, diminus, adx] = ta.dmi(14, 14)
+
+// ══════════════════════════════════════════════════════════════
+//  MARKET REGIME — BULL / BEAR / SIDEWAYS
+//  Uses ADX + EMA spread + BB width to classify current market
+// ══════════════════════════════════════════════════════════════
+
+// Bollinger Band width (measures volatility/compression)
+bb_basis = ta.sma(c, 20)
+bb_dev   = ta.stdev(c, 20)
+bb_upper = bb_basis + 2 * bb_dev
+bb_lower = bb_basis - 2 * bb_dev
+bb_width = (bb_upper - bb_lower) / bb_basis * 100  // % of price
+bb_width_ma = ta.sma(bb_width, 20)
+
+// EMA spread — measures how separated EMAs are (trend strength)
+ema_spread_pct = math.abs(ema9 - ema21) / ema21 * 100
+
+// Price range compression check — is price bouncing in a tight band?
+highest_20 = ta.highest(h, 20)
+lowest_20  = ta.lowest(l,  20)
+range_pct  = (highest_20 - lowest_20) / lowest_20 * 100
+
+// ── REGIME CLASSIFICATION ──────────────────────────────────
+// SIDEWAYS: ADX<25 AND (bb_width < avg OR ema_spread tight)
+// BULL:     ADX>25 AND price > ema200 AND ema9 > ema21 AND diplus > diminus
+// BEAR:     ADX>25 AND price < ema200 AND ema9 < ema21 AND diminus > diplus
+
+regime_sideways = adx < 25 and (bb_width < bb_width_ma * 0.9 or ema_spread_pct < 0.3)
+regime_bull     = adx >= 25 and c > ema200 and ema9 > ema21 and diplus > diminus and not regime_sideways
+regime_bear     = adx >= 25 and c < ema200 and ema9 < ema21 and diminus > diplus and not regime_sideways
+regime_weak     = not regime_bull and not regime_bear and not regime_sideways  // trending but weakly
+
+// ── EMA CROSSOVER DETECTION ────────────────────────────────
+// Detect fresh crossovers within ema_cross_bars
+ema_cross_bull = ta.crossover(ema9, ema21)   // golden cross — 9 crosses above 21
+ema_cross_bear = ta.crossunder(ema9, ema21)  // death cross  — 9 crosses below 21
+
+// Track if crossover happened recently
+var int last_bull_cross = 0
+var int last_bear_cross = 0
+if ema_cross_bull and barstate.isconfirmed
+    last_bull_cross := bar_index
+if ema_cross_bear and barstate.isconfirmed
+    last_bear_cross := bar_index
+
+recent_bull_cross = bar_index - last_bull_cross <= ema_cross_bars
+recent_bear_cross = bar_index - last_bear_cross <= ema_cross_bars
+
+// ══════════════════════════════════════════════════════════════
+//  ICT SESSIONS — New York time
+// ══════════════════════════════════════════════════════════════
+is_asia      = time(timeframe.period, "2000-2359:1234567", "America/New_York")
+is_lon       = time(timeframe.period, "0200-0759:1234567", "America/New_York")
+is_ny        = time(timeframe.period, "0830-1659:1234567", "America/New_York")
+is_kz_lon    = time(timeframe.period, "0200-0500:1234567", "America/New_York")
+is_kz_ny     = time(timeframe.period, "0700-1000:1234567", "America/New_York")
+is_kz_lclose = time(timeframe.period, "1000-1200:1234567", "America/New_York")
+
+in_kz        = not na(is_kz_lon) or not na(is_kz_ny) or not na(is_kz_lclose)
+in_asian_acc = not na(is_asia)
+prime_sess   = not na(is_lon) or not na(is_ny)
+
+// Subtle session backgrounds — very light, not distracting
+c_kz_bg   = theme=="Blood Moon"?color.new(#FF1744,96) : theme=="Midnight Gold"?color.new(#FFD700,96) : color.new(#FFD600,96)
+c_lon_bg  = theme=="Blood Moon"?color.new(#8B0000,97) : color.new(#0091EA,97)
+c_ny_bg   = theme=="Blood Moon"?color.new(#660000,97) : color.new(#00C853,97)
+
+bgcolor(show_sess and not na(is_lon) ? c_lon_bg : na, title="London")
+bgcolor(show_sess and not na(is_ny)  ? c_ny_bg  : na, title="NY")
+bgcolor(show_kz   and in_kz         ? c_kz_bg  : na, title="Kill Zone")
+// Sideways market background — subtle grey warning
+bgcolor(block_sideways and regime_sideways ? color.new(#607D8B, 96) : na, title="Sideways Market")
+
+// ══════════════════════════════════════════════════════════════
+//  MULTI-TIMEFRAME TREND
+// ══════════════════════════════════════════════════════════════
+w_close = request.security(syminfo.tickerid, htf_w,  close, lookahead=barmerge.lookahead_off)
+w_e200  = request.security(syminfo.tickerid, htf_w,  ta.ema(close,200), lookahead=barmerge.lookahead_off)
+w_e9    = request.security(syminfo.tickerid, htf_w,  ta.ema(close,9),   lookahead=barmerge.lookahead_off)
+w_e21   = request.security(syminfo.tickerid, htf_w,  ta.ema(close,21),  lookahead=barmerge.lookahead_off)
+d_close = request.security(syminfo.tickerid, htf_d,  close, lookahead=barmerge.lookahead_off)
+d_e200  = request.security(syminfo.tickerid, htf_d,  ta.ema(close,200), lookahead=barmerge.lookahead_off)
+d_e9    = request.security(syminfo.tickerid, htf_d,  ta.ema(close,9),   lookahead=barmerge.lookahead_off)
+d_e21   = request.security(syminfo.tickerid, htf_d,  ta.ema(close,21),  lookahead=barmerge.lookahead_off)
+h4_close= request.security(syminfo.tickerid, htf_4h, close, lookahead=barmerge.lookahead_off)
+h4_e200 = request.security(syminfo.tickerid, htf_4h, ta.ema(close,200), lookahead=barmerge.lookahead_off)
+h4_e9   = request.security(syminfo.tickerid, htf_4h, ta.ema(close,9),   lookahead=barmerge.lookahead_off)
+h4_e21  = request.security(syminfo.tickerid, htf_4h, ta.ema(close,21),  lookahead=barmerge.lookahead_off)
+
+w_bull  = w_close  > w_e200  and w_e9  > w_e21
+w_bear  = w_close  < w_e200  and w_e9  < w_e21
+d_bull  = d_close  > d_e200  and d_e9  > d_e21
+d_bear  = d_close  < d_e200  and d_e9  < d_e21
+h4_bull = h4_close > h4_e200 and h4_e9 > h4_e21
+h4_bear = h4_close < h4_e200 and h4_e9 < h4_e21
+
+htf_bull_count = (w_bull?1:0) + (d_bull?1:0) + (h4_bull?1:0)
+htf_bear_count = (w_bear?1:0) + (d_bear?1:0) + (h4_bear?1:0)
+
+// ══════════════════════════════════════════════════════════════
+//  PREMIUM / DISCOUNT
+// ══════════════════════════════════════════════════════════════
+pd_hi  = ta.highest(h, 100)
+pd_lo  = ta.lowest(l,  100)
+pd_eq  = (pd_hi + pd_lo) / 2
+in_discount = c < pd_eq
+in_premium  = c > pd_eq
+
+// ══════════════════════════════════════════════════════════════
+//  TRUE ICT ORDER BLOCKS — chart only, no text labels
+// ══════════════════════════════════════════════════════════════
+ob_swing_hi = ta.highest(h, ob_lb)[1]
+ob_swing_lo = ta.lowest(l,  ob_lb)[1]
+
+// Impulse = closes beyond prior swing with strong body
+bull_impulse = bull and body > avgbody * 1.4 and c > ob_swing_hi
+bear_impulse = bear and body > avgbody * 1.4 and c < ob_swing_lo
+
+var int   last_ob  = 0
+var float ob_bhi   = na
+var float ob_blo   = na
+var float ob_shi   = na
+var float ob_slo   = na
+
+c_ob_bull = theme=="Midnight Gold"?color.new(#DAA520,88):theme=="Blood Moon"?color.new(#FF6600,88):color.new(#00BCD4,88)
+c_ob_bear = theme=="Midnight Gold"?color.new(#FF6B00,88):theme=="Blood Moon"?color.new(#CC0000,88):color.new(#FF5722,88)
+c_ob_bull_brd = theme=="Midnight Gold"?color.new(#DAA520,30):theme=="Blood Moon"?color.new(#FF6600,30):color.new(#00BCD4,30)
+c_ob_bear_brd = theme=="Midnight Gold"?color.new(#FF6B00,30):theme=="Blood Moon"?color.new(#CC0000,30):color.new(#FF5722,30)
+
+if show_ob and barstate.isconfirmed and bar_index - last_ob >= 4
+    if bull_impulse
+        for i = 1 to ob_lb
+            if close[i] < open[i]
+                ob_bhi := h[i]
+                ob_blo := l[i]
+                box.new(bar_index-i, ob_blo, bar_index+ob_ext, ob_bhi,
+                     border_color=c_ob_bull_brd, bgcolor=c_ob_bull, border_width=1)
+                last_ob := bar_index
+                break
+    if bear_impulse
+        for i = 1 to ob_lb
+            if close[i] > open[i]
+                ob_shi := h[i]
+                ob_slo := l[i]
+                box.new(bar_index-i, ob_slo, bar_index+ob_ext, ob_shi,
+                     border_color=c_ob_bear_brd, bgcolor=c_ob_bear, border_width=1)
+                last_ob := bar_index
+                break
+
+in_bull_ob = not na(ob_bhi) and l <= ob_bhi and c >= ob_blo
+in_bear_ob = not na(ob_slo) and h >= ob_slo  and c <= ob_shi
+
+// ══════════════════════════════════════════════════════════════
+//  FAIR VALUE GAPS — chart only, no text labels
+// ══════════════════════════════════════════════════════════════
+bfvg = l >= h[2] - atr*0.15 and l < h[2] + atr*0.05 and body[1] > avgbody*1.2 and bull[1]
+sfvg = h <= l[2] + atr*0.15 and h > l[2] - atr*0.05 and body[1] > avgbody*1.2 and bear[1]
+
+c_fvg_bull = theme=="Midnight Gold"?color.new(#DAA520,91):theme=="Blood Moon"?color.new(#FF4400,91):color.new(#00C853,91)
+c_fvg_bear = theme=="Midnight Gold"?color.new(#FF3030,91):theme=="Blood Moon"?color.new(#CC0000,91):color.new(#D50000,91)
+c_fvg_bull_brd = theme=="Midnight Gold"?color.new(#DAA520,40):theme=="Blood Moon"?color.new(#FF4400,40):color.new(#00C853,40)
+c_fvg_bear_brd = theme=="Midnight Gold"?color.new(#FF3030,40):theme=="Blood Moon"?color.new(#CC0000,40):color.new(#D50000,40)
+
+var int last_fvg = 0
+if show_fvg and barstate.isconfirmed and bar_index - last_fvg >= 3
+    if bfvg
+        box.new(bar_index-2, h[2], bar_index+fvg_ext, l,
+             border_color=c_fvg_bull_brd, bgcolor=c_fvg_bull, border_width=1)
+        last_fvg := bar_index
+    if sfvg
+        box.new(bar_index-2, h, bar_index+fvg_ext, l[2],
+             border_color=c_fvg_bear_brd, bgcolor=c_fvg_bear, border_width=1)
+        last_fvg := bar_index
+
+// ══════════════════════════════════════════════════════════════
+//  KEY S/R LEVELS — auto swing high/low lines
+// ══════════════════════════════════════════════════════════════
+sr_ph = ta.pivothigh(h, 12, 12)
+sr_pl = ta.pivotlow(l,  12, 12)
+
+var line[] sr_lines = array.new_line()
+var int last_srh = 0, var int last_srl = 0
+
+if not na(sr_ph) and barstate.isconfirmed and bar_index - last_srh >= 12
+    new_l = line.new(bar_index-12, sr_ph, bar_index+40, sr_ph,
+         color=color.new(t_bear, 60), style=line.style_dotted, width=1)
+    array.push(sr_lines, new_l)
+    if array.size(sr_lines) > 10
+        line.delete(array.shift(sr_lines))
+    last_srh := bar_index
+
+if not na(sr_pl) and barstate.isconfirmed and bar_index - last_srl >= 12
+    new_l = line.new(bar_index-12, sr_pl, bar_index+40, sr_pl,
+         color=color.new(t_bull, 60), style=line.style_dotted, width=1)
+    array.push(sr_lines, new_l)
+    if array.size(sr_lines) > 10
+        line.delete(array.shift(sr_lines))
+    last_srl := bar_index
+
+// ══════════════════════════════════════════════════════════════
+//  PO3 / AMD — Asian range tracking
+// ══════════════════════════════════════════════════════════════
+var float asian_hi = na
+var float asian_lo = na
+var bool  asian_locked = false
+var bool  manip_occurred = false
+var bool  manip_bull_flag = false
+
+if not na(is_asia) and na(is_asia[1])
+    asian_hi := h
+    asian_lo := l
+    asian_locked := false
+    manip_occurred := false
+
+if not na(is_asia)
+    asian_hi := math.max(nz(asian_hi, h), h)
+    asian_lo := math.min(nz(asian_lo, l), l)
+
+if na(is_asia) and not na(is_asia[1])
+    asian_locked := true
+
+manip_bull = not na(is_lon) and not na(asian_lo) and l < asian_lo and c > asian_lo
+manip_bear = not na(is_lon) and not na(asian_hi) and h > asian_hi and c < asian_hi
+
+if manip_bull and barstate.isconfirmed
+    manip_occurred := true
+    manip_bull_flag := true
+if manip_bear and barstate.isconfirmed
+    manip_occurred := true
+    manip_bull_flag := false
+
+dist_bull = not na(is_ny) and manip_occurred and manip_bull_flag
+dist_bear = not na(is_ny) and manip_occurred and not manip_bull_flag
+
+// Draw Asian range lines (subtle dotted)
+var line a_hi_line = na
+var line a_lo_line = na
+c_asian = theme=="Midnight Gold"?color.new(#DAA520,45):theme=="Neon Night"?color.new(#00EEFF,45):theme=="Blood Moon"?color.new(#FF6600,45):color.new(#7C4DFF,50)
+
+if asian_locked and barstate.isconfirmed
+    line.delete(a_hi_line)
+    line.delete(a_lo_line)
+    a_hi_line := line.new(bar_index-5, asian_hi, bar_index+50, asian_hi, color=c_asian, width=1, style=line.style_dotted)
+    a_lo_line := line.new(bar_index-5, asian_lo, bar_index+50, asian_lo, color=c_asian, width=1, style=line.style_dotted)
+
+// ══════════════════════════════════════════════════════════════
+//  RSI DIVERGENCE
+// ══════════════════════════════════════════════════════════════
+ph_rsi = ta.pivothigh(rsi, 8, 8)
+pl_rsi = ta.pivotlow(rsi,  8, 8)
+ph_p   = ta.pivothigh(h,   8, 8)
+pl_p   = ta.pivotlow(l,    8, 8)
+
+var float prsi_h1=na, var float prsi_h2=na
+var float pric_h1=na, var float pric_h2=na
+var float prsi_l1=na, var float prsi_l2=na
+var float pric_l1=na, var float pric_l2=na
+
+if not na(ph_rsi)
+    prsi_h2 := prsi_h1
+    prsi_h1 := ph_rsi
+if not na(ph_p)
+    pric_h2 := pric_h1
+    pric_h1 := ph_p
+if not na(pl_rsi)
+    prsi_l2 := prsi_l1
+    prsi_l1 := pl_rsi
+if not na(pl_p)
+    pric_l2 := pric_l1
+    pric_l1 := pl_p
+
+bear_div = not na(pric_h1) and not na(pric_h2) and not na(prsi_h1) and not na(prsi_h2) and pric_h1 > pric_h2 and prsi_h1 < prsi_h2
+bull_div = not na(pric_l1) and not na(pric_l2) and not na(prsi_l1) and not na(prsi_l2) and pric_l1 < pric_l2 and prsi_l1 > prsi_l2
+
+// ══════════════════════════════════════════════════════════════
+//  BOS TRACKING (internal only — no chart labels)
+// ══════════════════════════════════════════════════════════════
+ph4 = ta.pivothigh(h, 4, 4)
+pl4 = ta.pivotlow(l,  4, 4)
+
+var float lph4=na, var float lpl4=na
+var float prev_ph=na, var float prev_pl=na
+var bool  r_bull_bos=false, var bool r_bear_bos=false
+var int   bos_bi=0
+
+if not na(ph4)
+    prev_ph := lph4
+    lph4 := ph4
+if not na(pl4)
+    prev_pl := lpl4
+    lpl4 := pl4
+
+bull_bos = not na(lph4) and c > lph4 and body > avgbody*1.3 and bull
+bear_bos = not na(lpl4) and c < lpl4 and body > avgbody*1.3 and bear
+
+if bull_bos and barstate.isconfirmed
+    r_bull_bos := true
+    r_bear_bos := false
+    bos_bi := bar_index
+if bear_bos and barstate.isconfirmed
+    r_bear_bos := true
+    r_bull_bos := false
+    bos_bi := bar_index
+if bar_index - bos_bi > 30
+    r_bull_bos := false
+    r_bear_bos := false
+
+// ══════════════════════════════════════════════════════════════
+//  CANDLESTICK PATTERN DETECTION (internal only)
+// ══════════════════════════════════════════════════════════════
+uw       = h - math.max(c, o)
+lw       = math.min(c, o) - l
+bull_eng = bull and bear[1] and c > o[1] and o < close[1] and body > body[1]*1.3
+bear_eng = bear and bull[1] and c < o[1] and o > close[1] and body > body[1]*1.3
+hammer   = lw >= body*2.2 and uw <= body*0.4 and rng > atr*0.6 and bull
+shoot    = uw >= body*2.2 and lw <= body*0.4 and rng > atr*0.6 and bear
+pin_bull = lw > body*2.8 and lw > uw*2.5 and rng > atr*0.8
+pin_bear = uw > body*2.8 and uw > lw*2.5 and rng > atr*0.8
+doji     = body <= rng*0.08 and rng > atr*0.5
+
+cs_bull  = bull_eng or hammer or pin_bull
+cs_bear  = bear_eng or shoot  or pin_bear
+
+// ══════════════════════════════════════════════════════════════
+//  LIQUIDITY SWEEPS (internal only)
+// ══════════════════════════════════════════════════════════════
+ph20 = ta.highest(h, 20)[1]
+pl20 = ta.lowest(l,  20)[1]
+
+bull_sweep = h > ph20 and c < ph20 and body > avgbody
+bear_sweep = l < pl20 and c > pl20 and body > avgbody
+
+var bool had_bear_swp=false, var bool had_bull_swp=false, var int swp_bi=0
+if bull_sweep and barstate.isconfirmed
+    had_bull_swp := true
+    had_bear_swp := false
+    swp_bi := bar_index
+if bear_sweep and barstate.isconfirmed
+    had_bear_swp := true
+    had_bull_swp := false
+    swp_bi := bar_index
+if bar_index - swp_bi > 10
+    had_bear_swp := false
+    had_bull_swp := false
+
+bull_cisd = had_bear_swp and bull and body > avgbody*1.8 and c > o[1]
+bear_cisd = had_bull_swp and bear and body > avgbody*1.8 and c < o[1]
+
+// ══════════════════════════════════════════════════════════════
+//  CONFLUENCE SCORING — each confirmation = 1 point
+//  Table explains which ones are active
+// ══════════════════════════════════════════════════════════════
+
+// ── BULL CONFIRMATIONS ─────────────────────────────────────
+cf_htf_bull    = htf_bull_count >= 2                              // 2+ HTF timeframes bullish
+cf_ema_bull    = ema9 > ema21 and c > ema200                     // EMA stack bullish
+cf_pd_bull     = in_discount                                      // price in discount zone
+cf_ob_bull     = in_bull_ob                                       // price at bull OB
+cf_fvg_bull    = bfvg                                             // bull FVG present
+cf_kz_bull     = not na(is_kz_ny) or not na(is_kz_lon)           // inside kill zone
+cf_bos_bull    = r_bull_bos                                       // BOS bullish
+cf_cs_bull     = cs_bull                                          // bull candle pattern
+cf_sweep_bull  = bull_cisd                                        // CISD after bear sweep
+cf_div_bull    = bull_div                                         // RSI bullish divergence
+cf_dist_bull   = dist_bull                                        // AMD distribution up
+cf_rsi_bull    = rsi > 40 and rsi < 65                           // RSI in healthy bull range
+cf_vol_bull    = relvol >= 1.1                                    // above-avg volume
+cf_adx_bull    = adx > 20
+cf_regime_bull = regime_bull or regime_weak  // not in sideways
+cf_cross_bull  = not ema_cross_req or recent_bull_cross  // fresh EMA cross if required                                         // trending (not ranging)
+
+// ── BEAR CONFIRMATIONS ─────────────────────────────────────
+cf_htf_bear    = htf_bear_count >= 2
+cf_ema_bear    = ema9 < ema21 and c < ema200
+cf_pd_bear     = in_premium
+cf_ob_bear     = in_bear_ob
+cf_fvg_bear    = sfvg
+cf_kz_bear     = not na(is_kz_ny) or not na(is_kz_lon)
+cf_bos_bear    = r_bear_bos
+cf_cs_bear     = cs_bear
+cf_sweep_bear  = bear_cisd
+cf_div_bear    = bear_div
+cf_dist_bear   = dist_bear
+cf_rsi_bear    = rsi > 35 and rsi < 60
+cf_vol_bear    = relvol >= 1.1
+cf_adx_bear    = adx > 20
+cf_regime_bear = regime_bear or regime_weak
+cf_cross_bear  = not ema_cross_req or recent_bear_cross
+
+// ── COUNT ──────────────────────────────────────────────────
+bull_conf = (cf_htf_bull?1:0) + (cf_ema_bull?1:0) + (cf_pd_bull?1:0) +
+     (cf_ob_bull?1:0) + (cf_fvg_bull?1:0) + (cf_kz_bull?1:0) +
+     (cf_bos_bull?1:0) + (cf_cs_bull?1:0) + (cf_sweep_bull?1:0) +
+     (cf_div_bull?1:0) + (cf_dist_bull?1:0) + (cf_rsi_bull?1:0) +
+     (cf_vol_bull?1:0) + (cf_adx_bull?1:0) +
+     (cf_regime_bull?1:0) + (cf_cross_bull?1:0)   // +2: regime + EMA cross
+
+bear_conf = (cf_htf_bear?1:0) + (cf_ema_bear?1:0) + (cf_pd_bear?1:0) +
+     (cf_ob_bear?1:0) + (cf_fvg_bear?1:0) + (cf_kz_bear?1:0) +
+     (cf_bos_bear?1:0) + (cf_cs_bear?1:0) + (cf_sweep_bear?1:0) +
+     (cf_div_bear?1:0) + (cf_dist_bear?1:0) + (cf_rsi_bear?1:0) +
+     (cf_vol_bear?1:0) + (cf_adx_bear?1:0) +
+     (cf_regime_bear?1:0) + (cf_cross_bear?1:0)   // +2: regime + EMA cross
+
+// Asian session penalty — do not signal during accumulation
+in_spike = ta.atr(14) > ta.sma(ta.atr(14), 20) * 2.2
+no_trade = in_asian_acc or in_spike or (block_sideways and regime_sideways)
+
+// ══════════════════════════════════════════════════════════════
+//  BUY / SELL SIGNAL — minimal, clean, only when conf >= min_conf
+// ══════════════════════════════════════════════════════════════
+var int last_sig = 0
+buy_sig  = bull_conf >= min_conf and not no_trade and bar_index - last_sig >= sig_cool
+sell_sig = bear_conf >= min_conf and not no_trade and bar_index - last_sig >= sig_cool and not buy_sig
+
+// Signal strength label
+sig_strength(n) => n >= 8 ? "★★★" : n >= 6 ? "★★" : n >= 4 ? "★" : "·"
+
+c_buy_lbl  = theme=="Midnight Gold"?color.new(#FFD700,0):theme=="Blood Moon"?color.new(#FF6600,0):color.new(#00E676,0)
+c_sell_lbl = theme=="Blood Moon"?color.new(#FF1744,0):color.new(#FF1744,0)
+c_buy_bg   = theme=="Midnight Gold"?color.new(#1A1400,5):theme=="Blood Moon"?color.new(#1A0800,5):color.new(#003311,5)
+c_sell_bg  = theme=="Blood Moon"?color.new(#1A0000,5):color.new(#1A0000,5)
+
+// EMA crossover markers — small triangle when cross happens
+plotshape(ema_cross_bull, "EMA Bull Cross", shape.triangleup,   location.belowbar, color.new(t_bull,30), size=size.tiny)
+plotshape(ema_cross_bear, "EMA Bear Cross", shape.triangledown, location.abovebar, color.new(t_bear,30), size=size.tiny)
+
+if barstate.isconfirmed
+    if buy_sig
+        regime_tag = recent_bull_cross ? " X" : ""  // X = EMA cross present
+        label.new(bar_index, l - atr*1.5,
+             "BUY" + regime_tag + "  " + sig_strength(bull_conf) + "\n" + str.tostring(bull_conf) + "/16",
+             color=c_buy_bg,
+             textcolor=c_buy_lbl,
+             style=label.style_label_up,
+             size=size.normal)
+        last_sig := bar_index
+    else if sell_sig
+        regime_tag = recent_bear_cross ? " X" : ""
+        label.new(bar_index, h + atr*1.5,
+             "SELL" + regime_tag + "  " + sig_strength(bear_conf) + "\n" + str.tostring(bear_conf) + "/16",
+             color=c_sell_bg,
+             textcolor=c_sell_lbl,
+             style=label.style_label_down,
+             size=size.normal)
+        last_sig := bar_index
+
+// ══════════════════════════════════════════════════════════════
+//  DASHBOARD — Why is the signal showing?
+// ══════════════════════════════════════════════════════════════
+
+// Helper: status cell colors
+c_on  = color.new(t_bull, 0)
+c_off = color.new(t_neut, 60)
+c_bear_on = color.new(t_bear, 0)
+
+bg_on_b  = color.new(t_bull, 88)
+bg_on_r  = color.new(t_bear, 88)
+bg_off   = cell_bg
+
+get_tick(v) => v ? "●" : "○"
+get_bg_b(v) => v ? bg_on_b : bg_off
+get_bg_r(v) => v ? bg_on_r : bg_off
+get_tc_b(v) => v ? c_on : c_off
+get_tc_r(v) => v ? c_bear_on : c_off
+
+var table dash = table.new(dpos, 3, 36,
+     border_color=dash_bd, border_width=1, bgcolor=dash_bg)
+
+if barstate.islast
+
+    // ── HEADER ──────────────────────────────────────────────
+    thm_ic = theme=="Neon Night"?"⚡":theme=="Clean Light"?"☀":theme=="Stealth"?"◉":theme=="Midnight Gold"?"✦":theme=="Blood Moon"?"🩸":"◆"
+    table.cell(dash, 0, 0, thm_ic + " QMA v9", text_color=color.new(hdr_txt,0), bgcolor=hdr_bg, text_size=size.small, text_halign=text.align_center)
+    table.cell(dash, 1, 0, "▲ BULL",            text_color=color.new(t_bull,0),  bgcolor=hdr_bg, text_size=size.small, text_halign=text.align_center)
+    table.cell(dash, 2, 0, "▼ BEAR",            text_color=color.new(t_bear,0),  bgcolor=hdr_bg, text_size=size.small, text_halign=text.align_center)
+
+    // ── MARKET REGIME — first row, most prominent ───────────
+    regime_lbl = regime_sideways?"◈ SIDEWAYS — NO TRADE":regime_bull?"▲ BULL TREND":regime_bear?"▼ BEAR TREND":"◌ WEAK TREND"
+    regime_tc  = regime_sideways?color.new(t_warn,0):regime_bull?color.new(t_bull,0):regime_bear?color.new(t_bear,0):color.new(t_neut,0)
+    regime_bg2 = regime_sideways?color.new(t_warn,12):regime_bull?color.new(t_bull,10):regime_bear?color.new(t_bear,10):cell_bg
+    adx_str_lbl = adx>=30?"Strong":adx>=25?"Moderate":adx>=20?"Weak":"Ranging"
+    table.cell(dash, 0, 1, "MARKET REGIME", text_color=color.new(t_warn,0), bgcolor=cell_bg, text_size=size.tiny, text_halign=text.align_center)
+    table.cell(dash, 1, 1, regime_lbl,      text_color=regime_tc, bgcolor=regime_bg2, text_size=size.small, text_halign=text.align_center)
+    table.cell(dash, 2, 1, "ADX: "+str.tostring(math.round(adx,0))+" ("+adx_str_lbl+")", text_color=regime_tc, bgcolor=cell_bg, text_size=size.tiny, text_halign=text.align_center)
+
+    // ── EMA CROSSOVER STATUS ─────────────────────────────────
+    cross_lbl_b = recent_bull_cross?"✓ Bull Cross ("+str.tostring(bar_index-last_bull_cross)+"b ago)":"No recent cross"
+    cross_lbl_r = recent_bear_cross?"✓ Bear Cross ("+str.tostring(bar_index-last_bear_cross)+"b ago)":"No recent cross"
+    cross_tc_b  = recent_bull_cross?color.new(t_bull,0):color.new(t_neut,50)
+    cross_tc_r  = recent_bear_cross?color.new(t_bear,0):color.new(t_neut,50)
+    table.cell(dash, 0, 2, "EMA 9/21 Cross", text_color=color.white, bgcolor=cell_bg, text_size=size.tiny)
+    table.cell(dash, 1, 2, cross_lbl_b, text_color=cross_tc_b, bgcolor=recent_bull_cross?color.new(t_bull,88):cell_bg, text_size=size.tiny, text_halign=text.align_center)
+    table.cell(dash, 2, 2, cross_lbl_r, text_color=cross_tc_r, bgcolor=recent_bear_cross?color.new(t_bear,88):cell_bg, text_size=size.tiny, text_halign=text.align_center)
+
+    // ── SIGNAL STATUS ───────────────────────────────────────
+    sig_lbl = regime_sideways and block_sideways?"⛔ SIDEWAYS":buy_sig ? "▲ BUY" : sell_sig ? "▼ SELL" : no_trade ? "⛔ NO TRADE" : "— WAIT"
+    sig_tc  = buy_sig ? color.new(t_bull,0) : sell_sig ? color.new(t_bear,0) : (regime_sideways and block_sideways)?color.new(t_warn,0):color.new(t_neut,0)
+    sig_bg2 = buy_sig ? color.new(t_bull,8) : sell_sig ? color.new(t_bear,8) : (regime_sideways and block_sideways)?color.new(t_warn,15):cell_bg
+    table.cell(dash, 0, 3, "SIGNAL",  text_color=color.new(t_warn,0), bgcolor=cell_bg,  text_size=size.tiny,  text_halign=text.align_center)
+    table.cell(dash, 1, 3, sig_lbl,  text_color=sig_tc,               bgcolor=sig_bg2, text_size=size.small, text_halign=text.align_center)
+    table.cell(dash, 2, 3, str.tostring(bull_conf)+"/16  |  "+str.tostring(bear_conf)+"/16",
+         text_color=color.new(t_warn,0), bgcolor=cell_bg, text_size=size.tiny, text_halign=text.align_center)
+
+    // ── MIN CONFIRMATIONS ───────────────────────────────────
+    bar_b = bull_conf >= 13?"████████":bull_conf>=10?"██████░░":bull_conf>=7?"████░░░░":bull_conf>=4?"██░░░░░░":"░░░░░░░░"
+    bar_r = bear_conf >= 13?"████████":bear_conf>=10?"██████░░":bear_conf>=7?"████░░░░":bear_conf>=4?"██░░░░░░":"░░░░░░░░"
+    table.cell(dash, 0, 4, "Confluences", text_color=color.white, bgcolor=cell_bg, text_size=size.tiny)
+    table.cell(dash, 1, 4, str.tostring(bull_conf)+"/16 "+bar_b, text_color=color.new(t_bull,0), bgcolor=bull_conf>=min_conf?color.new(t_bull,10):cell_bg, text_size=size.tiny, text_halign=text.align_center)
+    table.cell(dash, 2, 4, str.tostring(bear_conf)+"/16 "+bar_r, text_color=color.new(t_bear,0), bgcolor=bear_conf>=min_conf?color.new(t_bear,10):cell_bg, text_size=size.tiny, text_halign=text.align_center)
+
+    // ── SEPARATOR: WHY? ─────────────────────────────────────
+    table.cell(dash, 0, 5, "━ WHY IS THIS SIGNAL SHOWING? ━", text_color=color.new(t_warn,0), bgcolor=hdr_bg, text_size=size.tiny, text_halign=text.align_center)
+    table.cell(dash, 1, 5, "Active = ●   Inactive = ○",        text_color=color.new(t_neut,0), bgcolor=hdr_bg, text_size=size.tiny, text_halign=text.align_center)
+    table.cell(dash, 2, 5, "Need "+str.tostring(min_conf)+"+ to signal", text_color=color.new(t_warn,0), bgcolor=hdr_bg, text_size=size.tiny, text_halign=text.align_center)
+
+    // ── CONFIRMATION ROWS ────────────────────────────────────
+    // Each row: label | bull status | bear status
+    // Color: green=active for that direction, dim=inactive
+
+    table.cell(dash, 0, 7,  "HTF Trend (2+TF)",  text_color=color.white, bgcolor=cell_bg, text_size=size.tiny)
+    table.cell(dash, 1, 7,  get_tick(cf_htf_bull)+" "+str.tostring(htf_bull_count)+"/3 HTF↑", text_color=get_tc_b(cf_htf_bull), bgcolor=get_bg_b(cf_htf_bull), text_size=size.tiny, text_halign=text.align_center)
+    table.cell(dash, 2, 7,  get_tick(cf_htf_bear)+" "+str.tostring(htf_bear_count)+"/3 HTF↓", text_color=get_tc_r(cf_htf_bear), bgcolor=get_bg_r(cf_htf_bear), text_size=size.tiny, text_halign=text.align_center)
+
+    table.cell(dash, 0, 8,  "EMA Stack",          text_color=color.white, bgcolor=cell_bg, text_size=size.tiny)
+    ema_s_b = ema9>ema21 and c>ema200 ? "9>21>200 ↑" : ema9>ema21 ? "9>21" : "mixed"
+    ema_s_r = ema9<ema21 and c<ema200 ? "9<21<200 ↓" : ema9<ema21 ? "9<21" : "mixed"
+    table.cell(dash, 1, 8,  get_tick(cf_ema_bull)+" "+ema_s_b, text_color=get_tc_b(cf_ema_bull), bgcolor=get_bg_b(cf_ema_bull), text_size=size.tiny, text_halign=text.align_center)
+    table.cell(dash, 2, 8,  get_tick(cf_ema_bear)+" "+ema_s_r, text_color=get_tc_r(cf_ema_bear), bgcolor=get_bg_r(cf_ema_bear), text_size=size.tiny, text_halign=text.align_center)
+
+    table.cell(dash, 0, 9,  "Premium/Discount",   text_color=color.white, bgcolor=cell_bg, text_size=size.tiny)
+    pd_txt = in_discount ? "Discount ↑" : in_premium ? "Premium ↑" : "Equilibrium"
+    table.cell(dash, 1, 9,  get_tick(cf_pd_bull)+" Discount zone", text_color=get_tc_b(cf_pd_bull), bgcolor=get_bg_b(cf_pd_bull), text_size=size.tiny, text_halign=text.align_center)
+    table.cell(dash, 2, 9,  get_tick(cf_pd_bear)+" Premium zone",  text_color=get_tc_r(cf_pd_bear), bgcolor=get_bg_r(cf_pd_bear), text_size=size.tiny, text_halign=text.align_center)
+
+    table.cell(dash, 0, 10,  "Order Block",         text_color=color.white, bgcolor=cell_bg, text_size=size.tiny)
+    table.cell(dash, 1, 10,  get_tick(cf_ob_bull)+" At Bull OB",    text_color=get_tc_b(cf_ob_bull), bgcolor=get_bg_b(cf_ob_bull), text_size=size.tiny, text_halign=text.align_center)
+    table.cell(dash, 2, 10,  get_tick(cf_ob_bear)+" At Bear OB",    text_color=get_tc_r(cf_ob_bear), bgcolor=get_bg_r(cf_ob_bear), text_size=size.tiny, text_halign=text.align_center)
+
+    table.cell(dash, 0, 11,  "Fair Value Gap",      text_color=color.white, bgcolor=cell_bg, text_size=size.tiny)
+    table.cell(dash, 1, 11,  get_tick(cf_fvg_bull)+" Bull FVG",     text_color=get_tc_b(cf_fvg_bull), bgcolor=get_bg_b(cf_fvg_bull), text_size=size.tiny, text_halign=text.align_center)
+    table.cell(dash, 2, 11,  get_tick(cf_fvg_bear)+" Bear FVG",     text_color=get_tc_r(cf_fvg_bear), bgcolor=get_bg_r(cf_fvg_bear), text_size=size.tiny, text_halign=text.align_center)
+
+    table.cell(dash, 0, 12,  "Kill Zone (ICT/NY)",  text_color=color.white, bgcolor=cell_bg, text_size=size.tiny)
+    kz_lbl = not na(is_kz_ny)?"NY KZ 7-10AM":not na(is_kz_lon)?"LDN KZ 2-5AM":not na(is_kz_lclose)?"LDN Close":"Closed"
+    table.cell(dash, 1, 12,  get_tick(cf_kz_bull)+" "+kz_lbl,       text_color=get_tc_b(cf_kz_bull), bgcolor=get_bg_b(cf_kz_bull), text_size=size.tiny, text_halign=text.align_center)
+    table.cell(dash, 2, 12,  get_tick(cf_kz_bear)+" "+kz_lbl,       text_color=get_tc_r(cf_kz_bear), bgcolor=get_bg_r(cf_kz_bear), text_size=size.tiny, text_halign=text.align_center)
+
+    table.cell(dash, 0, 13, "BOS (Break of Struct)", text_color=color.white, bgcolor=cell_bg, text_size=size.tiny)
+    table.cell(dash, 1, 13, get_tick(cf_bos_bull)+" Bull BOS",     text_color=get_tc_b(cf_bos_bull), bgcolor=get_bg_b(cf_bos_bull), text_size=size.tiny, text_halign=text.align_center)
+    table.cell(dash, 2, 13, get_tick(cf_bos_bear)+" Bear BOS",     text_color=get_tc_r(cf_bos_bear), bgcolor=get_bg_r(cf_bos_bear), text_size=size.tiny, text_halign=text.align_center)
+
+    table.cell(dash, 0, 14, "Candle Pattern",      text_color=color.white, bgcolor=cell_bg, text_size=size.tiny)
+    cs_b_lbl = bull_eng?"Engulf":hammer?"Hammer":pin_bull?"Pin Bar":"—"
+    cs_r_lbl = bear_eng?"Engulf":shoot?"Shooting Star":pin_bear?"Pin Bar":"—"
+    table.cell(dash, 1, 14, get_tick(cf_cs_bull)+" "+cs_b_lbl,     text_color=get_tc_b(cf_cs_bull), bgcolor=get_bg_b(cf_cs_bull), text_size=size.tiny, text_halign=text.align_center)
+    table.cell(dash, 2, 14, get_tick(cf_cs_bear)+" "+cs_r_lbl,     text_color=get_tc_r(cf_cs_bear), bgcolor=get_bg_r(cf_cs_bear), text_size=size.tiny, text_halign=text.align_center)
+
+    table.cell(dash, 0, 15, "Liq. Sweep + CISD",  text_color=color.white, bgcolor=cell_bg, text_size=size.tiny)
+    table.cell(dash, 1, 15, get_tick(cf_sweep_bull)+" CISD ↑",      text_color=get_tc_b(cf_sweep_bull), bgcolor=get_bg_b(cf_sweep_bull), text_size=size.tiny, text_halign=text.align_center)
+    table.cell(dash, 2, 15, get_tick(cf_sweep_bear)+" CISD ↓",      text_color=get_tc_r(cf_sweep_bear), bgcolor=get_bg_r(cf_sweep_bear), text_size=size.tiny, text_halign=text.align_center)
+
+    table.cell(dash, 0, 16, "RSI Divergence",      text_color=color.white, bgcolor=cell_bg, text_size=size.tiny)
+    table.cell(dash, 1, 16, get_tick(cf_div_bull)+" Bull Div",      text_color=get_tc_b(cf_div_bull), bgcolor=get_bg_b(cf_div_bull), text_size=size.tiny, text_halign=text.align_center)
+    table.cell(dash, 2, 16, get_tick(cf_div_bear)+" Bear Div",      text_color=get_tc_r(cf_div_bear), bgcolor=get_bg_r(cf_div_bear), text_size=size.tiny, text_halign=text.align_center)
+
+    table.cell(dash, 0, 17, "AMD Distribution",    text_color=color.white, bgcolor=cell_bg, text_size=size.tiny)
+    amd_lbl = not na(is_asia)?"ACCUM (Asia)": manip_bull?"Manip ↑": manip_bear?"Manip ↓": dist_bull?"Dist ↑": dist_bear?"Dist ↓":"Neutral"
+    table.cell(dash, 1, 17, get_tick(cf_dist_bull)+" "+amd_lbl,     text_color=get_tc_b(cf_dist_bull), bgcolor=get_bg_b(cf_dist_bull), text_size=size.tiny, text_halign=text.align_center)
+    table.cell(dash, 2, 17, get_tick(cf_dist_bear)+" "+amd_lbl,     text_color=get_tc_r(cf_dist_bear), bgcolor=get_bg_r(cf_dist_bear), text_size=size.tiny, text_halign=text.align_center)
+
+    table.cell(dash, 0, 18, "RSI Zone",            text_color=color.white, bgcolor=cell_bg, text_size=size.tiny)
+    rsi_s = "RSI: "+str.tostring(math.round(rsi,0))
+    table.cell(dash, 1, 18, get_tick(cf_rsi_bull)+" "+rsi_s,        text_color=get_tc_b(cf_rsi_bull), bgcolor=get_bg_b(cf_rsi_bull), text_size=size.tiny, text_halign=text.align_center)
+    table.cell(dash, 2, 18, get_tick(cf_rsi_bear)+" "+rsi_s,        text_color=get_tc_r(cf_rsi_bear), bgcolor=get_bg_r(cf_rsi_bear), text_size=size.tiny, text_halign=text.align_center)
+
+    table.cell(dash, 0, 19, "Volume",              text_color=color.white, bgcolor=cell_bg, text_size=size.tiny)
+    vol_s = str.tostring(math.round(relvol,1))+"x avg"
+    table.cell(dash, 1, 19, get_tick(cf_vol_bull)+" "+vol_s,        text_color=get_tc_b(cf_vol_bull), bgcolor=get_bg_b(cf_vol_bull), text_size=size.tiny, text_halign=text.align_center)
+    table.cell(dash, 2, 19, get_tick(cf_vol_bear)+" "+vol_s,        text_color=get_tc_r(cf_vol_bear), bgcolor=get_bg_r(cf_vol_bear), text_size=size.tiny, text_halign=text.align_center)
+
+    table.cell(dash, 0, 20, "ADX Trend Strength",  text_color=color.white, bgcolor=cell_bg, text_size=size.tiny)
+    adx_s = "ADX: "+str.tostring(math.round(adx,0))+(adx>25?" Strong":adx>18?" Moderate":" Ranging")
+    table.cell(dash, 1, 20, get_tick(cf_adx_bull)+" "+adx_s,        text_color=get_tc_b(cf_adx_bull), bgcolor=get_bg_b(cf_adx_bull), text_size=size.tiny, text_halign=text.align_center)
+    table.cell(dash, 2, 20, get_tick(cf_adx_bear)+" "+adx_s,        text_color=get_tc_r(cf_adx_bear), bgcolor=get_bg_r(cf_adx_bear), text_size=size.tiny, text_halign=text.align_center)
+
+    table.cell(dash, 0, 21, "Market Regime",       text_color=color.white, bgcolor=cell_bg, text_size=size.tiny)
+    table.cell(dash, 1, 21, get_tick(cf_regime_bull)+" "+regime_lbl, text_color=get_tc_b(cf_regime_bull), bgcolor=get_bg_b(cf_regime_bull), text_size=size.tiny, text_halign=text.align_center)
+    table.cell(dash, 2, 21, get_tick(cf_regime_bear)+" "+regime_lbl, text_color=get_tc_r(cf_regime_bear), bgcolor=get_bg_r(cf_regime_bear), text_size=size.tiny, text_halign=text.align_center)
+
+    table.cell(dash, 0, 22, "EMA Cross Trigger",   text_color=color.white, bgcolor=cell_bg, text_size=size.tiny)
+    table.cell(dash, 1, 22, get_tick(cf_cross_bull)+" "+cross_lbl_b, text_color=get_tc_b(cf_cross_bull), bgcolor=get_bg_b(cf_cross_bull), text_size=size.tiny, text_halign=text.align_center)
+    table.cell(dash, 2, 22, get_tick(cf_cross_bear)+" "+cross_lbl_r, text_color=get_tc_r(cf_cross_bear), bgcolor=get_bg_r(cf_cross_bear), text_size=size.tiny, text_halign=text.align_center)
+
+    // ── MARKET CONTEXT ──────────────────────────────────────
+    table.cell(dash, 0, 29, "━ MARKET CONTEXT ━",  text_color=color.new(t_warn,0), bgcolor=hdr_bg, text_size=size.tiny, text_halign=text.align_center)
+    table.cell(dash, 1, 29, "Session / Phase",      text_color=color.new(t_neut,0), bgcolor=hdr_bg, text_size=size.tiny, text_halign=text.align_center)
+    table.cell(dash, 2, 29, "Levels",               text_color=color.new(t_neut,0), bgcolor=hdr_bg, text_size=size.tiny, text_halign=text.align_center)
+
+    sess_lbl = not na(is_kz_ny)?"★ NY Kill Zone":not na(is_kz_lon)?"★ LDN Kill Zone":not na(is_lon)?"London Session":not na(is_ny)?"NY Session":in_asian_acc?"Asia (WAIT)":"Closed"
+    sess_tc  = not na(is_kz_ny) or not na(is_kz_lon) ? color.new(t_bull,0) : in_asian_acc ? color.new(t_warn,0) : color.new(t_neut,0)
+    sess_bg2 = not na(is_kz_ny)?color.new(t_bull,10):not na(is_kz_lon)?color.new(t_warn,15):in_asian_acc?color.new(t_warn,20):cell_bg
+    table.cell(dash, 0, 30, "Session",              text_color=color.white, bgcolor=cell_bg, text_size=size.tiny)
+    table.cell(dash, 1, 30, sess_lbl,               text_color=sess_tc, bgcolor=sess_bg2, text_size=size.tiny, text_halign=text.align_center)
+    table.cell(dash, 2, 30, in_spike?"⚠ VOL SPIKE":no_trade?"⛔ SKIP":in_asian_acc?"Accumulating":"Ready",
+         text_color=in_spike or no_trade?color.new(t_bear,0):color.new(t_bull,0), bgcolor=cell_bg, text_size=size.tiny, text_halign=text.align_center)
+
+    asian_txt = not na(asian_hi) ? "H:"+str.tostring(math.round(asian_hi,1))+"  L:"+str.tostring(math.round(asian_lo,1)) : "—"
+    table.cell(dash, 0, 31, "Asian Range",          text_color=color.new(t_neut,0), bgcolor=cell_bg, text_size=size.tiny)
+    table.cell(dash, 1, 31, asian_txt,              text_color=color.new(t_info,0), bgcolor=cell_bg, text_size=size.tiny, text_halign=text.align_center)
+    table.cell(dash, 2, 31, asian_locked?"Locked ✓":"Building…", text_color=color.new(t_neut,0), bgcolor=cell_bg, text_size=size.tiny, text_halign=text.align_center)
+
+    pd_lbl2 = in_discount?"DISCOUNT — buy zone":in_premium?"PREMIUM — sell zone":"EQUILIBRIUM"
+    pd_tc2  = in_discount?color.new(t_bull,0):in_premium?color.new(t_bear,0):color.new(t_neut,0)
+    pd_bg2  = in_discount?color.new(t_bull,20):in_premium?color.new(t_bear,20):cell_bg
+    table.cell(dash, 0, 28, "Price Zone",           text_color=color.white, bgcolor=cell_bg, text_size=size.tiny)
+    table.cell(dash, 1, 28, pd_lbl2,                text_color=pd_tc2, bgcolor=pd_bg2, text_size=size.tiny, text_halign=text.align_center)
+    table.cell(dash, 2, 28, "EQ: "+str.tostring(math.round(pd_eq,0)), text_color=color.new(t_neut,0), bgcolor=cell_bg, text_size=size.tiny, text_halign=text.align_center)
+
+    // ── QUICK REFERENCE ─────────────────────────────────────
+    table.cell(dash, 0, 32, "━ REFERENCE ━",        text_color=color.new(t_warn,0), bgcolor=hdr_bg, text_size=size.tiny, text_halign=text.align_center)
+    table.cell(dash, 1, 32, "Chart: EMA+OB+FVG+BUY/SELL", text_color=color.new(t_neut,0), bgcolor=hdr_bg, text_size=size.tiny, text_halign=text.align_center)
+    table.cell(dash, 2, 32, "Signal needs "+str.tostring(min_conf)+"/16 checks", text_color=color.new(t_neut,0), bgcolor=hdr_bg, text_size=size.tiny, text_halign=text.align_center)
+
+    table.cell(dash, 0, 33, "Skip When",            text_color=color.new(t_bear,0), bgcolor=cell_bg, text_size=size.tiny)
+    table.cell(dash, 1, 33, "Asia session  (accum)", text_color=color.new(t_bear,0), bgcolor=cell_bg, text_size=size.tiny, text_halign=text.align_center)
+    table.cell(dash, 2, 33, "Vol spike  |  ADX<20",  text_color=color.new(t_bear,0), bgcolor=cell_bg, text_size=size.tiny, text_halign=text.align_center)
+
+    table.cell(dash, 0, 34, "Theme",                text_color=color.new(t_neut,0), bgcolor=cell_bg, text_size=size.tiny)
+    table.cell(dash, 1, 34, theme,                  text_color=color.new(hdr_txt,0), bgcolor=hdr_bg, text_size=size.tiny, text_halign=text.align_center)
+    table.cell(dash, 2, 34, "TF: "+timeframe.period, text_color=color.new(t_warn,0), bgcolor=cell_bg, text_size=size.tiny, text_halign=text.align_center)
+
+// ══════════════════════════════════════════════════════════════
+//  ALERTS
+// ══════════════════════════════════════════════════════════════
+alertcondition(buy_sig,  "QMA v9 BUY",  "QMA v9 ▲ BUY signal fired — check dashboard for active confirmations")
+alertcondition(sell_sig, "QMA v9 SELL", "QMA v9 ▼ SELL signal fired — check dashboard for active confirmations")
+alertcondition(not na(is_kz_ny),  "NY Kill Zone",  "NY Kill Zone open 7-10AM — watch for signals")
+alertcondition(not na(is_kz_lon), "LDN Kill Zone", "London Kill Zone open 2-5AM — watch for signals")
+alertcondition(manip_bull, "AMD Manipulation ↑", "Bullish manipulation detected — distribution up expected")
+alertcondition(manip_bear, "AMD Manipulation ↓", "Bearish manipulation detected — distribution down expected")
