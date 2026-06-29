@@ -1,0 +1,90 @@
+// ═══════════════════════════════════════════════════════════════
+// VIX TENSION REVERSAL INDICATOR  •  v1.0
+// Works on any crypto pair — BTC, ETH, SOL, etc.
+// Detects wedge compression & breakouts on vol proxy
+// ═══════════════════════════════════════════════════════════════
+
+//@version=5
+indicator("VIX Tension Reversal [Crypto]", shorttitle="VTR", overlay=false, max_lines_count=500)
+
+// ── INPUTS ────────────────────────────────────────────────────
+lookback   = input.int(60,    "Wedge Lookback",      minval=20, maxval=300)
+fearLevel  = input.float(28.5, "Fear Threshold",     step=0.5)
+calmLevel  = input.float(21.5, "Complacency Level",  step=0.5)
+showBands  = input.bool(true,  "Show Wedge Bands")
+showSigs   = input.bool(true,  "Show Reversal Signals")
+
+// ── VOL PROXY (ATR-normalised range — crypto IV substitute) ──
+// ATR as % of price → mirrors VIX concept on spot crypto
+atr14      = ta.atr(14)
+volProxy   = (atr14 / ta.sma(close, 14)) * 100
+
+// ── ROLLING WEDGE TRENDLINES (linear regression highs/lows) ──
+highSeries = ta.highest(volProxy, lookback)
+lowSeries  = ta.lowest(volProxy,  lookback)
+
+upperBand  = ta.linreg(highSeries, lookback, 0)
+lowerBand  = ta.linreg(lowSeries,  lookback, 0)
+
+// ── TENSION SCORE (0–100) ─────────────────────────────────────
+wedgeWidth  = upperBand - lowerBand
+compression = 1 - math.min(wedgeWidth / fearLevel, 1)
+tension     = math.round(compression * 100)
+
+// ── REVERSAL SIGNAL CONDITIONS ────────────────────────────────
+fearSpike   = volProxy > upperBand and volProxy[1] <= upperBand[1] and tension > 55
+calmBreak   = volProxy < lowerBand and volProxy[1] >= lowerBand[1] and tension > 50
+maxTension  = tension >= 80 and tension[1] < 80
+
+// ── VOL LINE COLOUR (tension-based) ──────────────────────────
+volColor = tension > 75 ? color.new(color.red,    0) :
+           tension > 50 ? color.new(color.orange, 0) :
+           tension > 25 ? color.new(color.yellow, 0) :
+                          color.new(color.teal,   0)
+
+// ── PLOT: VOL PROXY LINE ──────────────────────────────────────
+plot(volProxy, "Vol Proxy (VIX-like)", color=volColor, linewidth=2)
+
+// ── PLOT: WEDGE BANDS ─────────────────────────────────────────
+upperLine = plot(showBands ? upperBand : na, "Upper Band", color=color.new(color.orange, 30), linewidth=1)
+lowerLine = plot(showBands ? lowerBand : na, "Lower Band", color=color.new(color.orange, 30), linewidth=1)
+fill(upperLine, lowerLine, color=color.new(color.orange, 90), title="Wedge Fill")
+
+// ── PLOT: THRESHOLD LEVELS ────────────────────────────────────
+hline(fearLevel, "Fear Zone",        color=color.new(color.red,  40), linestyle=hline.style_dashed)
+hline(calmLevel, "Complacency Zone", color=color.new(color.teal, 40), linestyle=hline.style_dashed)
+
+// ── TENSION HISTOGRAM ─────────────────────────────────────────
+plot(tension * (fearLevel / 100), "Tension %", color=color.new(volColor, 60), style=plot.style_histogram, linewidth=4)
+
+// ── REVERSAL SIGNALS ──────────────────────────────────────────
+plotshape(showSigs and fearSpike,  title="Fear Spike",   style=shape.triangleup,   location=location.belowbar, color=color.red,    size=size.small, text="FEAR",    textcolor=color.red)
+plotshape(showSigs and calmBreak,  title="Complacency",  style=shape.triangledown, location=location.abovebar, color=color.teal,   size=size.small, text="CALM",    textcolor=color.teal)
+plotshape(showSigs and maxTension, title="Max Tension",  style=shape.diamond,      location=location.abovebar, color=color.orange, size=size.tiny,  text="SQUEEZE", textcolor=color.orange)
+
+// ── BACKGROUND ZONE HIGHLIGHT ────────────────────────────────
+bgColor = volProxy > fearLevel ? color.new(color.red,  92) :
+          volProxy < calmLevel ? color.new(color.teal, 92) : na
+bgcolor(bgColor, title="Zone Highlight")
+
+// ── INFO TABLE (top-right corner) ─────────────────────────────
+var table infoTbl = table.new(position.top_right, 2, 4, bgcolor=color.new(color.black, 80), border_width=1, border_color=color.new(color.white, 70), frame_width=1, frame_color=color.new(color.white, 60))
+
+if barstate.islast
+    statusStr  = volProxy > fearLevel ? "HIGH FEAR"  : volProxy < calmLevel ? "COMPLACENCY" : "NEUTRAL"
+    statusCol  = volProxy > fearLevel ? color.red    : volProxy < calmLevel ? color.teal    : color.orange
+    tensionStr = tension >= 80 ? "EXTREME" : tension >= 50 ? "HIGH" : tension >= 25 ? "MID" : "LOW"
+
+    table.cell(infoTbl, 0, 0, "VOL PROXY",                     text_color=color.gray,  text_size=size.small)
+    table.cell(infoTbl, 1, 0, str.tostring(volProxy, "#.##"),   text_color=volColor,    text_size=size.small)
+    table.cell(infoTbl, 0, 1, "TENSION",                        text_color=color.gray,  text_size=size.small)
+    table.cell(infoTbl, 1, 1, tensionStr + " (" + str.tostring(tension) + "%)", text_color=volColor, text_size=size.small)
+    table.cell(infoTbl, 0, 2, "STATUS",                         text_color=color.gray,  text_size=size.small)
+    table.cell(infoTbl, 1, 2, statusStr,                        text_color=statusCol,   text_size=size.small)
+    table.cell(infoTbl, 0, 3, "WEDGE WIDTH",                    text_color=color.gray,  text_size=size.small)
+    table.cell(infoTbl, 1, 3, str.tostring(wedgeWidth, "#.##"), text_color=color.white, text_size=size.small)
+
+// ── ALERTS (global scope — Pine Script requirement) ───────────
+alertcondition(fearSpike,  title="Fear Spike — Reversal Up",    message="⚡ VIX Tension: Fear spike — watch for bullish reversal")
+alertcondition(calmBreak,  title="Complacency Break — Down",    message="🧊 VIX Tension: Complacency collapse — bearish reversal risk")
+alertcondition(maxTension, title="Max Tension — Breakout Soon", message="🔺 VIX Tension: Extreme squeeze — breakout imminent")
