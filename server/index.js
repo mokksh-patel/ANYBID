@@ -41,6 +41,20 @@ app.get('/api/health', (_req, res) => {
 
 startAuctionScheduler();
 
+// Startup warnings for production misconfigurations
+const isProd = process.env.NODE_ENV === 'production';
+if (isProd) {
+  if (!process.env.JWT_SECRET || process.env.JWT_SECRET === 'dev-secret-change-me') {
+    console.warn('⚠️  WARNING: JWT_SECRET is not set or uses the default. Set a strong secret in production!');
+  }
+  if (!process.env.APP_URL || process.env.APP_URL.includes('localhost')) {
+    console.warn('⚠️  WARNING: APP_URL is not set or points to localhost. Email links will be broken in production!');
+  }
+  if (!process.env.SMTP_PASS) {
+    console.warn('⚠️  WARNING: SMTP_PASS is not set. Emails will be logged to console only.');
+  }
+}
+
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`AnyBid running on port ${PORT}`);
   console.log(`Admin: ${process.env.ADMIN_EMAIL || 'mokkshpatel@gmail.com'}`);

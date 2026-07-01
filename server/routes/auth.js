@@ -66,4 +66,50 @@ router.get('/me', authRequired, async (req, res) => {
   res.json(rows[0]);
 });
 
+router.patch('/me', authRequired, async (req, res) => {
+  try {
+    const { name, phone, current_password, new_password } = req.body;
+    const updates = [];
+    const params = [];
+
+    if (name !== undefined) {
+      if (!name.trim()) return res.status(400).json({ error: 'Name cannot be empty' });
+      updates.push('name = ?');
+      params.push(name.trim().slice(0, 120));
+    }
+    if (phone !== undefined) {
+      updates.push('phone = ?');
+      params.push(phone ? phone.trim().slice(0, 20) : null);
+    }
+
+    if (new_password) {
+      if (new_password.length < 6) {
+        return res.status(400).json({ error: 'New password must be at least 6 characters' });
+      }
+      if (!current_password) {
+        return res.status(400).json({ error: 'Current password required to set a new password' });
+      }
+      const [rows] = await pool.query('SELECT password_hash FROM users WHERE id = ?', [req.user.id]);
+      const ok = await bcrypt.compare(current_password, rows[0].password_hash);
+      if (!ok) return res.status(401).json({ error: 'Current password is incorrect' });
+      const hash = await bcrypt.hash(new_password, 10);
+      updates.push('password_hash = ?');
+      params.push(hash);
+    }
+
+    if (!updates.length) return res.status(400).json({ error: 'Nothing to update' });
+
+    params.push(req.user.id);
+    await pool.query(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`, params);
+
+    const [updated] = await pool.query(
+      'SELECT id, email, name, phone, role, verified, created_at FROM users WHERE id = ?',
+      [req.user.id]
+    );
+    res.json(updated[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

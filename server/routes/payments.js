@@ -93,4 +93,25 @@ router.post('/verify', authRequired, async (req, res) => {
   }
 });
 
+router.post('/fail', authRequired, async (req, res) => {
+  try {
+    const { razorpay_order_id, auction_id, error_description } = req.body;
+    if (!razorpay_order_id) return res.status(400).json({ error: 'razorpay_order_id required' });
+
+    await pool.query(
+      `UPDATE payments SET status = 'failed' WHERE razorpay_order_id = ? AND buyer_id = ?`,
+      [razorpay_order_id, req.user.id]
+    );
+
+    await pool.query(
+      `INSERT INTO notifications (user_id, type, title, message) VALUES (?, 'payment_failed', 'Payment failed', ?)`,
+      [req.user.id, `Payment failed for auction #${auction_id}. ${error_description || 'Please try again.'}`.slice(0, 255)]
+    );
+
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

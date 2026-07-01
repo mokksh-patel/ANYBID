@@ -60,4 +60,13 @@ router.get('/users', async (_req, res) => {
   res.json(rows);
 });
 
+router.patch('/users/:id/role', async (req, res) => {
+  const { role } = req.body;
+  if (!['user', 'admin'].includes(role)) {
+    return res.status(400).json({ error: 'Role must be "user" or "admin"' });
+  }
+  await pool.query('UPDATE users SET role = ? WHERE id = ?', [role, req.params.id]);
+  res.json({ ok: true });
+});
+
 module.exports = router;
