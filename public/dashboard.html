@@ -5,6 +5,84 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>My Account — AnyBid</title>
   <link rel="stylesheet" href="/css/main.css" />
+  <style>
+    .dash-layout {
+      display: grid;
+      grid-template-columns: 240px 1fr;
+      gap: 1.5rem;
+      align-items: start;
+      padding: 1.5rem 1.25rem;
+      max-width: 1280px;
+      margin: 0 auto;
+    }
+    .dash-sidebar {
+      background: var(--card);
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      position: sticky;
+      top: 80px;
+    }
+    .dash-profile-box {
+      background: linear-gradient(135deg, #1e1b4b, #312e81);
+      color: #fff;
+      padding: 1.5rem 1.25rem;
+      text-align: center;
+    }
+    .dash-avatar {
+      width: 56px; height: 56px;
+      background: var(--accent);
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.4rem; font-weight: 900; color: var(--primary);
+      margin: 0 auto .75rem;
+    }
+    .dash-profile-box h3 { font-size: 1rem; font-weight: 800; }
+    .dash-profile-box p  { font-size: .75rem; opacity: .75; margin-top: .15rem; }
+    .dash-nav { padding: .5rem; }
+    .dash-nav-item {
+      display: flex; align-items: center; gap: .65rem;
+      padding: .65rem .85rem; border-radius: var(--radius-sm);
+      font-size: .875rem; font-weight: 600; color: var(--muted);
+      cursor: pointer; transition: .15s; border: none; background: none;
+      width: 100%; text-align: left;
+    }
+    .dash-nav-item:hover { background: #f4f4f5; color: var(--text); }
+    .dash-nav-item.active { background: #e0e7ff; color: var(--primary); }
+    .dash-nav-item .nav-icon { font-size: 1rem; width: 20px; text-align: center; }
+    .dash-nav-item .nav-badge {
+      margin-left: auto; background: var(--danger); color: #fff;
+      font-size: .65rem; font-weight: 800; padding: .1rem .4rem;
+      border-radius: var(--radius-pill); min-width: 18px; text-align: center;
+    }
+    .dash-nav-divider { height: 1px; background: var(--border); margin: .4rem .85rem; }
+    .dash-content { min-height: 60vh; }
+    .dash-section-title {
+      font-size: 1.15rem; font-weight: 900; margin-bottom: 1.1rem;
+      padding-bottom: .65rem; border-bottom: 1.5px solid var(--border);
+      display: flex; align-items: center; gap: .5rem;
+    }
+    /* Transaction table */
+    .txn-table { width: 100%; border-collapse: collapse; font-size: .855rem; }
+    .txn-table th { background: #f9fafb; padding: .65rem 1rem; text-align: left; font-size: .72rem; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 700; border-bottom: 1.5px solid var(--border); }
+    .txn-table td { padding: .75rem 1rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    .txn-table tr:last-child td { border-bottom: none; }
+    .txn-table tr:hover td { background: #fafafa; }
+    .status-pill { display: inline-block; font-size: .7rem; font-weight: 700; padding: .2rem .6rem; border-radius: var(--radius-pill); }
+    .status-paid    { background: #d1fae5; color: #065f46; }
+    .status-pending { background: #fef3c7; color: #92400e; }
+    .status-failed  { background: #fee2e2; color: #991b1b; }
+    /* Stats row */
+    .dash-stats { display: grid; grid-template-columns: repeat(4,1fr); gap: .85rem; margin-bottom: 1.5rem; }
+    @media (max-width: 900px) {
+      .dash-layout { grid-template-columns: 1fr; }
+      .dash-sidebar { position: static; }
+      .dash-stats { grid-template-columns: repeat(2,1fr); }
+    }
+    @media (max-width: 480px) {
+      .dash-stats { grid-template-columns: repeat(2,1fr); }
+    }
+  </style>
 </head>
 <body>
   <header class="site-header">
@@ -17,22 +95,46 @@
       </div>
     </div>
   </header>
-  <main class="container" style="padding-top:1.5rem">
-    <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:1.5rem">
-      <div style="width:44px;height:44px;border-radius:50%;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;font-size:1.1rem;font-weight:800" id="avatar">?</div>
-      <div>
-        <h1 style="font-size:1.25rem;font-weight:900" id="welcome">My Account</h1>
-        <p style="font-size:.8rem;color:var(--muted)" id="user-email"></p>
+
+  <div class="dash-layout">
+    <!-- Sidebar -->
+    <aside class="dash-sidebar">
+      <div class="dash-profile-box">
+        <div class="dash-avatar" id="avatar">?</div>
+        <h3 id="sidebar-name">My Account</h3>
+        <p id="sidebar-email"></p>
       </div>
-    </div>
-    <div class="tabs">
-      <button class="tab active" data-tab="notifications">🔔 Notifications</button>
-      <button class="tab" data-tab="selling">📦 My Listings</button>
-      <button class="tab" data-tab="bidding">🏷 My Bids</button>
-      <button class="tab" data-tab="profile">👤 Profile</button>
-    </div>
-    <div id="panel"></div>
-  </main>
+      <nav class="dash-nav">
+        <button class="dash-nav-item active" data-tab="overview">
+          <span class="nav-icon">📊</span> Overview
+        </button>
+        <button class="dash-nav-item" data-tab="notifications">
+          <span class="nav-icon">🔔</span> Notifications
+          <span class="nav-badge" id="notif-count" style="display:none">0</span>
+        </button>
+        <div class="dash-nav-divider"></div>
+        <button class="dash-nav-item" data-tab="selling">
+          <span class="nav-icon">📦</span> My Listings
+        </button>
+        <button class="dash-nav-item" data-tab="bidding">
+          <span class="nav-icon">🏷️</span> My Bids
+        </button>
+        <button class="dash-nav-item" data-tab="transactions">
+          <span class="nav-icon">💳</span> Transactions
+        </button>
+        <div class="dash-nav-divider"></div>
+        <button class="dash-nav-item" data-tab="profile">
+          <span class="nav-icon">👤</span> Profile & Security
+        </button>
+      </nav>
+    </aside>
+
+    <!-- Main content -->
+    <main class="dash-content" id="panel">
+      <div class="empty-state"><p style="font-size:2rem">⏳</p><p>Loading…</p></div>
+    </main>
+  </div>
+
   <div id="toast-container"></div>
   <script src="/js/api.js"></script>
   <script src="/js/dashboard.js"></script>
