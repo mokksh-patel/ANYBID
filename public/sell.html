@@ -9,83 +9,96 @@
 <body>
   <header class="site-header">
     <div class="header-top">
-      <a href="/" class="logo">Any<span>Bid</span></a>
-      <a href="/dashboard.html" class="btn btn-outline">My account</a>
+      <a href="/" class="logo"><div class="logo-icon">B</div> Any<span>Bid</span></a>
+      <div style="flex:1"></div>
+      <div class="header-actions">
+        <a href="/dashboard.html" class="btn btn-ghost">My account</a>
+      </div>
     </div>
   </header>
-  <main class="container" style="max-width:640px">
-    <h1 style="margin:1rem 0">List a real item for auction</h1>
-    <p class="commission-note">Only list items you actually own and can ship or hand over. Set a <strong>floor price</strong> — if bidding doesn't reach it, no sale happens. You can cancel anytime before the first bid.</p>
-    <div id="alert"></div>
-    <form id="sell-form" class="auth-card" style="max-width:100%">
-      <div class="form-group">
+  <main class="container" style="padding-top:1.5rem;max-width:680px">
+    <a href="/" class="back-link">← Back</a>
+    <div class="sell-card">
+      <h2>List an item for auction</h2>
+      <p class="sub">Only list items you actually own. Set a <strong>floor price</strong> — if bidding doesn't reach it, no sale happens and you keep your item.</p>
+      <div id="alert"></div>
+      <form id="sell-form" enctype="multipart/form-data">
         <label>Listing type</label>
         <select name="listing_type" id="listing-type">
           <option value="product">Product</option>
           <option value="real_estate">Real Estate / Property</option>
         </select>
-      </div>
-      <div class="form-group">
-        <label>Title</label>
-        <input name="title" required placeholder="iPhone 14, 2BHK flat in Pune…" />
-      </div>
-      <div class="form-group">
-        <label>Description</label>
-        <textarea name="description" rows="4" placeholder="Condition, location, details…"></textarea>
-      </div>
-      <div class="form-group">
-        <label>Category</label>
+
+        <label style="margin-top:.9rem">Title</label>
+        <input name="title" required placeholder="e.g. iPhone 14, 2BHK flat in Pune…" maxlength="200" />
+
+        <label style="margin-top:.9rem">Description</label>
+        <textarea name="description" rows="3" placeholder="Condition, location, included accessories…" maxlength="2000"></textarea>
+
+        <label style="margin-top:.9rem">Category</label>
         <select name="category" id="category-select" required></select>
-      </div>
-      <div id="estate-fields" style="display:none">
-        <div class="form-row">
-          <div class="form-group">
-            <label>Property location</label>
-            <input name="property_location" placeholder="City, area" />
+
+        <div id="estate-fields" style="display:none">
+          <div class="form-row" style="margin-top:.9rem">
+            <div>
+              <label>Property location</label>
+              <input name="property_location" placeholder="City, area" />
+            </div>
+            <div>
+              <label>Area (sq ft)</label>
+              <input name="property_area_sqft" type="number" min="0" />
+            </div>
           </div>
-          <div class="form-group">
-            <label>Area (sq ft)</label>
-            <input name="property_area_sqft" type="number" />
+        </div>
+
+        <label style="margin-top:.9rem">Photo</label>
+        <input type="file" name="image" accept="image/*" id="image-input" />
+        <div id="image-preview" style="margin-top:.5rem;display:none">
+          <img id="preview-img" style="max-height:160px;border-radius:var(--radius-sm);border:1.5px solid var(--border)" alt="Preview" />
+        </div>
+
+        <div class="form-row" style="margin-top:.9rem">
+          <div>
+            <label>Currency</label>
+            <select name="currency" id="currency-select"></select>
+          </div>
+          <div>
+            <label>Duration</label>
+            <div class="duration-row" id="duration-row">
+              <button type="button" class="duration-btn" data-val="1h">1 hour</button>
+              <button type="button" class="duration-btn" data-val="6h">6 hours</button>
+              <button type="button" class="duration-btn active" data-val="1d">1 day</button>
+              <button type="button" class="duration-btn" data-val="3d">3 days</button>
+              <button type="button" class="duration-btn" data-val="1w">1 week</button>
+            </div>
+            <input type="hidden" name="duration" id="duration-val" value="1d" />
           </div>
         </div>
-      </div>
-      <div class="form-group">
-        <label>Photo</label>
-        <input type="file" name="image" accept="image/*" />
-      </div>
-      <div class="form-row">
-        <div class="form-group">
-          <label>Currency</label>
-          <select name="currency" id="currency-select"></select>
+
+        <div class="form-row" style="margin-top:.9rem">
+          <div>
+            <label>Starting bid</label>
+            <input name="starting_bid" type="number" step="1" min="1" required placeholder="e.g. 500" />
+          </div>
+          <div>
+            <label>Floor price <span style="font-weight:400;color:var(--muted)">(min to sell)</span></label>
+            <input name="floor_price" type="number" step="1" min="1" required placeholder="e.g. 2000" />
+          </div>
         </div>
-        <div class="form-group">
-          <label>Duration</label>
-          <select name="duration" required>
-            <option value="1h">1 hour</option>
-            <option value="6h">6 hours</option>
-            <option value="1d" selected>1 day</option>
-            <option value="3d">3 days</option>
-            <option value="1w">1 week</option>
-          </select>
+
+        <div id="weight-group" style="margin-top:.9rem">
+          <label>Item weight (kg) <span style="font-weight:400;color:var(--muted)">for shipping estimate</span></label>
+          <input name="shipping_weight_kg" type="number" step="0.1" min="0.1" value="0.5" />
         </div>
-      </div>
-      <div class="form-row">
-        <div class="form-group">
-          <label>Starting bid</label>
-          <input name="starting_bid" type="number" step="0.01" required />
-        </div>
-        <div class="form-group">
-          <label>Floor price (minimum to sell)</label>
-          <input name="floor_price" type="number" step="0.01" required />
-        </div>
-      </div>
-      <div class="form-group" id="weight-group">
-        <label>Weight (kg) for shipping estimate</label>
-        <input name="shipping_weight_kg" type="number" step="0.1" value="0.5" />
-      </div>
-      <button type="submit" class="btn btn-primary btn-block">Start auction</button>
-    </form>
+
+        <p style="font-size:.78rem;color:var(--muted);margin-top:1rem;line-height:1.6">
+          You can withdraw the listing any time before the first bid. Once bidding starts it runs to the timer. Platform commission of <strong id="commission-pct">5</strong>% applies only on successful sales above your floor price.
+        </p>
+        <button type="submit" class="btn btn-dark btn-block" style="margin-top:1.25rem;padding:.8rem" id="submit-btn">🚀 Start auction</button>
+      </form>
+    </div>
   </main>
+  <div id="toast-container"></div>
   <script src="/js/api.js"></script>
   <script src="/js/sell.js"></script>
 </body>

@@ -5,19 +5,26 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Auction — AnyBid</title>
   <link rel="stylesheet" href="/css/main.css" />
-  <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+  <script src="https://checkout.razorpay.com/v1/checkout.js" defer></script>
 </head>
 <body>
   <header class="site-header">
     <div class="header-top">
-      <a href="/" class="logo">Any<span>Bid</span></a>
-      <a href="/" class="btn btn-outline">← Back</a>
+      <a href="/" class="logo"><div class="logo-icon">B</div> Any<span>Bid</span></a>
+      <div style="flex:1"></div>
+      <div class="header-actions">
+        <a href="/login.html" class="btn btn-outline" id="nav-login">Login</a>
+        <a href="/dashboard.html" class="btn btn-ghost" id="nav-user" style="display:none">Account</a>
+        <a href="/admin.html" class="btn btn-ghost" id="nav-admin" style="display:none">Admin</a>
+      </div>
     </div>
   </header>
-  <main class="container">
+  <main class="container" style="padding-top:1.5rem">
+    <a href="/" class="back-link">← Back to marketplace</a>
     <div id="alert"></div>
-    <div id="content">Loading…</div>
+    <div id="content"><div class="empty-state"><p style="font-size:2rem">⏳</p><p>Loading auction…</p></div></div>
   </main>
+  <div id="toast-container"></div>
   <script src="/js/api.js"></script>
   <script src="/js/auction.js"></script>
 </body>

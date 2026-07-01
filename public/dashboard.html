@@ -9,20 +9,31 @@
 <body>
   <header class="site-header">
     <div class="header-top">
-      <a href="/" class="logo">Any<span>Bid</span></a>
-      <button class="btn btn-outline" id="logout-btn">Logout</button>
+      <a href="/" class="logo"><div class="logo-icon">B</div> Any<span>Bid</span></a>
+      <div style="flex:1"></div>
+      <div class="header-actions">
+        <a href="/sell.html" class="btn btn-primary">+ Sell</a>
+        <button class="btn btn-ghost" id="logout-btn">Logout</button>
+      </div>
     </div>
   </header>
-  <main class="container">
-    <h1 id="welcome">My Account</h1>
+  <main class="container" style="padding-top:1.5rem">
+    <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:1.5rem">
+      <div style="width:44px;height:44px;border-radius:50%;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;font-size:1.1rem;font-weight:800" id="avatar">?</div>
+      <div>
+        <h1 style="font-size:1.25rem;font-weight:900" id="welcome">My Account</h1>
+        <p style="font-size:.8rem;color:var(--muted)" id="user-email"></p>
+      </div>
+    </div>
     <div class="tabs">
-      <button class="tab active" data-tab="notifications">Notifications</button>
-      <button class="tab" data-tab="selling">My listings</button>
-      <button class="tab" data-tab="bidding">My bids</button>
-      <button class="tab" data-tab="profile">Profile</button>
+      <button class="tab active" data-tab="notifications">🔔 Notifications</button>
+      <button class="tab" data-tab="selling">📦 My Listings</button>
+      <button class="tab" data-tab="bidding">🏷 My Bids</button>
+      <button class="tab" data-tab="profile">👤 Profile</button>
     </div>
     <div id="panel"></div>
   </main>
+  <div id="toast-container"></div>
   <script src="/js/api.js"></script>
   <script src="/js/dashboard.js"></script>
 </body>

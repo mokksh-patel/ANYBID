@@ -3,64 +3,58 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Register — AnyBid</title>
+  <title>Create Account — AnyBid</title>
   <link rel="stylesheet" href="/css/main.css" />
 </head>
 <body>
   <header class="site-header">
     <div class="header-top">
-      <a href="/" class="logo">Any<span>Bid</span></a>
+      <a href="/" class="logo"><div class="logo-icon">B</div> Any<span>Bid</span></a>
     </div>
   </header>
   <main class="auth-page">
     <div class="auth-card">
-      <h1>Create account</h1>
-      <p class="sub">Buy, sell, and bid on anything</p>
+      <div class="auth-logo">
+        <div class="logo-icon">B</div>
+        <h1 style="margin-top:.5rem">Create account</h1>
+        <p class="sub">Buy, sell and bid on anything</p>
+      </div>
       <div id="alert"></div>
       <form id="reg-form">
-        <div class="form-group">
-          <label>Full name</label>
-          <input name="name" required />
-        </div>
-        <div class="form-group">
-          <label>Email</label>
-          <input type="email" name="email" required />
-        </div>
-        <div class="form-group">
-          <label>Phone (for SMS alerts later)</label>
-          <input name="phone" placeholder="+91..." />
-        </div>
-        <div class="form-group">
-          <label>Password</label>
-          <input type="password" name="password" required minlength="6" />
-        </div>
-        <button type="submit" class="btn btn-primary btn-block">Register</button>
+        <label for="name">Full name</label>
+        <input id="name" name="name" required placeholder="Moksh Patel" autocomplete="name" />
+        <label for="email" style="margin-top:.9rem">Email address</label>
+        <input type="email" id="email" name="email" required placeholder="you@email.com" autocomplete="email" />
+        <label for="phone" style="margin-top:.9rem">Phone <span style="font-weight:400;color:var(--muted)">(optional, for alerts)</span></label>
+        <input id="phone" name="phone" placeholder="+91 98765 43210" autocomplete="tel" />
+        <label for="password" style="margin-top:.9rem">Password</label>
+        <input type="password" id="password" name="password" required minlength="6" placeholder="At least 6 characters" autocomplete="new-password" />
+        <button type="submit" class="btn btn-dark btn-block" style="margin-top:1.25rem" id="submit-btn">Create account</button>
       </form>
-      <p style="margin-top:1rem;text-align:center;font-size:0.9rem">
-        Have an account? <a href="/login.html">Login</a>
+      <p style="margin-top:1.25rem;text-align:center;font-size:.875rem;color:var(--muted)">
+        Already have an account? <a href="/login.html" style="font-weight:700">Login</a>
       </p>
     </div>
   </main>
+  <div id="toast-container"></div>
   <script src="/js/api.js"></script>
   <script>
     document.getElementById('reg-form').addEventListener('submit', async (e) => {
       e.preventDefault();
+      const btn = document.getElementById('submit-btn');
+      btn.textContent = 'Creating account…'; btn.disabled = true;
       const fd = new FormData(e.target);
       try {
         const data = await api('/auth/register', {
           method: 'POST',
-          body: JSON.stringify({
-            name: fd.get('name'),
-            email: fd.get('email'),
-            phone: fd.get('phone'),
-            password: fd.get('password'),
-          }),
+          body: JSON.stringify({ name: fd.get('name'), email: fd.get('email'), phone: fd.get('phone'), password: fd.get('password') }),
         });
-        setToken(data.token);
-        setUser(data.user);
-        location.href = '/';
+        setToken(data.token); setUser(data.user);
+        showToast('Welcome to AnyBid, ' + data.user.name + '!', 'success');
+        setTimeout(() => location.href = '/', 800);
       } catch (err) {
         document.getElementById('alert').innerHTML = `<div class="alert alert-error">${err.message}</div>`;
+        btn.textContent = 'Create account'; btn.disabled = false;
       }
     });
   </script>

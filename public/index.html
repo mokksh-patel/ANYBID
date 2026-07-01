@@ -4,59 +4,85 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>AnyBid — Bid on anything. Win everything.</title>
+  <meta name="description" content="India's live auction marketplace. Bid on electronics, fashion, real estate and more. Floor price protects sellers. BidRush anti-snipe technology." />
   <link rel="stylesheet" href="/css/main.css" />
 </head>
 <body>
-  <header class="site-header">
-    <div class="header-top">
-      <a href="/" class="logo">Any<span>Bid</span><small>Bid on anything. Win everything.</small></a>
-      <form class="search-bar" id="search-form">
-        <input type="search" id="search-input" placeholder="Search phones, property, handmade…" />
-        <button type="submit">Search</button>
-      </form>
-      <div class="header-actions">
-        <a href="/sell.html" class="btn btn-primary">+ Sell</a>
-        <a href="/login.html" class="btn btn-outline" id="nav-login">Login</a>
-        <a href="/dashboard.html" class="btn btn-ghost" id="nav-user" style="display:none">Account</a>
-        <a href="/admin.html" class="btn btn-outline" id="nav-admin" style="display:none">Admin</a>
-      </div>
-    </div>
-  </header>
 
+<header class="site-header">
+  <div class="header-top">
+    <a href="/" class="logo">
+      <div class="logo-icon">B</div>
+      Any<span>Bid</span>
+    </a>
+    <form class="search-bar" id="search-form">
+      <input type="search" id="search-input" placeholder="Search phones, property, handmade, weird stuff…" autocomplete="off" />
+      <button type="submit">Search</button>
+    </form>
+    <div class="header-actions">
+      <a href="/sell.html" class="btn btn-primary">+ Sell</a>
+      <a href="/login.html" class="btn btn-outline" id="nav-login">Login</a>
+      <a href="/dashboard.html" class="btn btn-ghost" id="nav-user" style="display:none">Account</a>
+      <a href="/admin.html" class="btn btn-ghost" id="nav-admin" style="display:none">Admin</a>
+      <button class="btn btn-icon btn-ghost notif-btn" id="notif-btn" style="display:none" aria-label="Notifications">
+        🔔<span class="notif-dot" id="notif-dot" style="display:none"></span>
+      </button>
+    </div>
+  </div>
   <nav class="nav-cats">
     <ul id="category-nav">
-      <li><a href="/" class="active" data-cat="">All</a></li>
+      <li><a href="#" class="active" data-cat="">All</a></li>
     </ul>
   </nav>
+</header>
 
-  <section class="pillars">
-    <div class="pillar"><strong>ANYTHING</strong><span>Water bottle to wedding jewelry — no limits</span></div>
-    <div class="pillar"><strong>FAIR</strong><span>Floor price protects sellers · Transparent bids</span></div>
-    <div class="pillar"><strong>LIVE</strong><span>60s BidRush — every late bid resets the timer</span></div>
-  </section>
+<!-- Notification dropdown -->
+<div class="notif-dropdown" id="notif-dropdown" style="display:none;position:fixed;top:72px;right:1.25rem">
+  <div class="notif-header">
+    <span>Notifications</span>
+    <button id="notif-close" style="background:none;border:none;font-size:1.1rem;cursor:pointer;color:var(--muted)">✕</button>
+  </div>
+  <div class="notif-list" id="notif-list">
+    <div style="padding:1rem;font-size:.82rem;color:var(--muted);text-align:center">No notifications yet</div>
+  </div>
+</div>
 
-  <main class="container">
-    <div class="section-title">
-      <h2>🔥 Top Deals — Live Auctions</h2>
-      <select id="sort-select">
-        <option value="ending">Ending soon</option>
-        <option value="new">Newest</option>
-        <option value="price">Highest bid</option>
-      </select>
-    </div>
-    <div id="auction-grid" class="auction-grid"></div>
-    <div id="empty" class="empty-state" style="display:none">
-      <p>No live auctions yet.</p>
-      <p>Be the first to list something real — <a href="/sell.html">Sell an item</a> or <a href="/register.html">create an account</a>.</p>
-    </div>
-  </main>
+<div class="value-banner">
+  <div class="value-banner-inner">
+    <span>✦ ANYTHING — no category limits</span>
+    <span>🛡 FAIR — floor price protects every seller</span>
+    <span>⚡ LIVE — BidRush resets last 60s on every bid</span>
+    <span style="margin-left:auto;font-style:italic;opacity:.75" class="hidden-sm">Bid on anything. Win everything.</span>
+  </div>
+</div>
 
-  <footer class="footer">
-    <p>AnyBid · Real sellers, real items — every listing is posted by an actual seller.</p>
-    <p class="commission-note">Platform commission: <span id="commission-pct">5</span>% on successful sales · Payments via Razorpay</p>
-  </footer>
+<main class="container">
+  <div class="section-header">
+    <h2>🔥 Live Auctions</h2>
+    <select id="sort-select" style="padding:.45rem .8rem;border-radius:var(--radius-pill);border:1.5px solid var(--border);font-size:.83rem;font-weight:600;background:#fff;cursor:pointer">
+      <option value="ending">Ending soon</option>
+      <option value="new">Newest first</option>
+      <option value="price">Highest bid</option>
+    </select>
+  </div>
+  <div id="auction-grid" class="auction-grid"></div>
+  <div id="empty" class="empty-state" style="display:none">
+    <p style="font-size:2.5rem">🛍️</p>
+    <p style="font-size:1.1rem;font-weight:700;margin-top:.5rem">No live auctions yet</p>
+    <p>Be the first — <a href="/sell.html">list an item</a> or <a href="/register.html">create an account</a>.</p>
+  </div>
+</main>
 
-  <script src="/js/api.js"></script>
-  <script src="/js/home.js"></script>
+<div id="toast-container"></div>
+
+<footer class="site-footer">
+  <p><strong>AnyBid</strong> · Real sellers, real items — every listing is posted by an actual person.</p>
+  <p class="commission-note" style="margin-top:.35rem">
+    Platform commission: <span id="commission-pct">5</span>% on successful sales · Payments via Razorpay · Made in India 🇮🇳
+  </p>
+</footer>
+
+<script src="/js/api.js"></script>
+<script src="/js/home.js"></script>
 </body>
 </html>

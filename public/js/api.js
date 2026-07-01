@@ -1,25 +1,13 @@
 const API = '/api';
 
-function getToken() {
-  return localStorage.getItem('anybid_token');
-}
-
-function setToken(token) {
-  if (token) localStorage.setItem('anybid_token', token);
-  else localStorage.removeItem('anybid_token');
-}
+function getToken()  { return localStorage.getItem('anybid_token'); }
+function setToken(t) { t ? localStorage.setItem('anybid_token', t) : localStorage.removeItem('anybid_token'); }
 
 function getUser() {
-  try {
-    return JSON.parse(localStorage.getItem('anybid_user') || 'null');
-  } catch {
-    return null;
-  }
+  try { return JSON.parse(localStorage.getItem('anybid_user') || 'null'); } catch { return null; }
 }
-
-function setUser(user) {
-  if (user) localStorage.setItem('anybid_user', JSON.stringify(user));
-  else localStorage.removeItem('anybid_user');
+function setUser(u) {
+  u ? localStorage.setItem('anybid_user', JSON.stringify(u)) : localStorage.removeItem('anybid_user');
 }
 
 async function api(path, options = {}) {
@@ -29,8 +17,7 @@ async function api(path, options = {}) {
   if (!(options.body instanceof FormData)) {
     headers['Content-Type'] = headers['Content-Type'] || 'application/json';
   }
-
-  const res = await fetch(`${API}${path}`, { ...options, headers });
+  const res  = await fetch(`${API}${path}`, { ...options, headers });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || res.statusText);
   return data;
@@ -46,28 +33,38 @@ function formatTimer(seconds) {
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
   const s = seconds % 60;
-  if (h > 0) return `${h}h ${m}m ${s}s`;
+  if (h > 0) return `${h}h ${m}m`;
   if (m > 0) return `${m}m ${s}s`;
   return `${s}s`;
+}
+
+function showToast(msg, type = 'success') {
+  let container = document.getElementById('toast-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'toast-container';
+    document.body.appendChild(container);
+  }
+  const toast = document.createElement('div');
+  toast.className = `toast toast-${type}`;
+  toast.textContent = msg;
+  container.appendChild(toast);
+  setTimeout(() => toast.remove(), 2800);
 }
 
 function updateHeaderAuth() {
   const user = getUser();
   const loginEl = document.getElementById('nav-login');
-  const userEl = document.getElementById('nav-user');
+  const userEl  = document.getElementById('nav-user');
   const adminEl = document.getElementById('nav-admin');
   if (!loginEl) return;
   if (user) {
     loginEl.style.display = 'none';
-    if (userEl) {
-      userEl.style.display = 'inline-flex';
-      userEl.textContent = user.name;
-      userEl.href = '/dashboard.html';
-    }
-    if (adminEl) adminEl.style.display = user.role === 'admin' ? 'inline-flex' : 'none';
+    if (userEl)  { userEl.style.display  = 'inline-flex'; userEl.textContent = user.name; userEl.href = '/dashboard.html'; }
+    if (adminEl) { adminEl.style.display = user.role === 'admin' ? 'inline-flex' : 'none'; }
   } else {
     loginEl.style.display = 'inline-flex';
-    if (userEl) userEl.style.display = 'none';
+    if (userEl)  userEl.style.display  = 'none';
     if (adminEl) adminEl.style.display = 'none';
   }
 }

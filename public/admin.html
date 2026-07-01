@@ -9,16 +9,26 @@
 <body>
   <header class="site-header">
     <div class="header-top">
-      <a href="/" class="logo">Any<span>Bid</span> Admin</a>
+      <a href="/" class="logo"><div class="logo-icon">B</div> Any<span>Bid</span></a>
+      <span style="flex:1;font-size:.8rem;color:rgba(255,255,255,.6)">Admin Panel</span>
+      <a href="/" class="btn btn-ghost btn-sm">← Site</a>
     </div>
   </header>
-  <main class="container">
-    <h1>Admin dashboard</h1>
-    <p class="commission-note">Monitor listings · Flag fraud · mokkshpatel@gmail.com receives all platform emails</p>
-    <div id="stats" class="pillars" style="margin:1rem 0"></div>
-    <h2>All auctions</h2>
-    <div id="admin-list"></div>
+  <main class="container" style="padding-top:1.5rem">
+    <h1 style="font-size:1.4rem;font-weight:900;margin-bottom:.25rem">Admin dashboard</h1>
+    <p class="commission-note" style="margin-bottom:1.5rem">Manage listings · Flag fraud · Monitor users</p>
+
+    <div id="stats" class="stats-grid"></div>
+
+    <div class="tabs" id="admin-tabs">
+      <button class="tab active" data-tab="auctions">All Auctions</button>
+      <button class="tab" data-tab="flagged">Flagged</button>
+      <button class="tab" data-tab="users">Users</button>
+    </div>
+
+    <div id="admin-panel"></div>
   </main>
+  <div id="toast-container"></div>
   <script src="/js/api.js"></script>
   <script src="/js/admin.js"></script>
 </body>
