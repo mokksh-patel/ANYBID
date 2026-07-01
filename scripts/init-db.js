@@ -40,10 +40,10 @@ async function main() {
     console.log('Database ready.');
   } catch (err) {
     console.error('DB init failed:', err.message);
-    process.exit(1);
+    // Don't exit(1) — let the server start anyway and retry connection
   } finally {
-    if (conn) await conn.end();
+    if (conn) await conn.end().catch(() => {});
   }
 }
 
-main();
+main().then(() => process.exit(0)).catch(() => process.exit(0));
