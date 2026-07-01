@@ -6,22 +6,6 @@ const { commissionPercent } = require('../services/auctionEngine');
 
 const router = express.Router();
 
-router.get('/mine', authRequired, async (req, res) => {
-  try {
-    const [rows] = await pool.query(
-      `SELECT p.*, a.title AS auction_title, a.image_path, a.category
-       FROM payments p
-       JOIN auctions a ON a.id = p.auction_id
-       WHERE p.buyer_id = ?
-       ORDER BY p.created_at DESC LIMIT 50`,
-      [req.user.id]
-    );
-    res.json(rows);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
 router.get('/config', (_req, res) => {
   res.json({
     key_id: process.env.RAZORPAY_KEY_ID || '',
